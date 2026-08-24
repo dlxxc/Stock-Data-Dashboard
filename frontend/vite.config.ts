@@ -14,10 +14,16 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5173,
     proxy: {
-      // 后端接口统一走 /api 前缀，开发期转发到 FastAPI 8000
       '/api': {
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('proxyRes', (proxyRes) => {
+            if (proxyRes.headers['content-type']?.includes('text/event-stream')) {
+              proxyRes.headers['cache-control'] = 'no-cache';
+            }
+          });
+        },
       },
     },
   },

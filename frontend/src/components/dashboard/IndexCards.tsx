@@ -1,25 +1,26 @@
 /**
  * 4 大指数卡片（需求 1.4 - 模块 1）
  *
- * 字段：name / value / change / pct / amount
- * 布局：4 列响应式网格，每张卡含指数名 + 大字点位 + 涨跌额 + 涨跌幅 + 成交额
- * 配色：红涨绿跌，Fira Code 字体强化数字感
+ * 1.7 失败处理：data=null + failure → 显示「拉取失败」+ 重试按钮
  */
 import { Card, Col, Empty, Row, Typography } from 'antd';
 import { formatAmount, formatIndex, formatPct, pctColor, pctSign, STOCK_COLORS } from '@/utils/format';
 import type { IndicesModule } from '@/types/modules';
+import ModuleFailure, { type ModuleFailureInfo } from './ModuleFailure';
 
 const { Text } = Typography;
 
 interface IndexCardsProps {
   data: IndicesModule | null;
+  failure?: ModuleFailureInfo | null;
+  onRetry?: () => void;
 }
 
-export default function IndexCards({ data }: IndexCardsProps) {
+export default function IndexCards({ data, failure, onRetry }: IndexCardsProps) {
   if (!data || !data.indices || data.indices.length === 0) {
     return (
       <Card title="4 大指数" size="small">
-        <Empty description="该日无指数数据" />
+        {failure ? <ModuleFailure error={failure.error} onRetry={onRetry} /> : <Empty description="该日无指数数据" />}
       </Card>
     );
   }

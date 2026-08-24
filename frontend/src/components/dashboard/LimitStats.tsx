@@ -1,28 +1,28 @@
 /**
  * 涨跌停统计（需求 1.4 - 模块 2）
  *
- * 字段：limit_up.total + limit_up.stocks[].times_limit / limit_down.total + limit_down.stocks[].pct
- * 布局：左右双栏，左涨停（总数 + 连板高度 TOP5）/ 右跌停（总数 + 跌幅 TOP5）
- *
- * TOP5 涨停按「连板数」降序；TOP5 跌停按「跌幅」升序（最负在前）。
+ * 1.7 失败处理：data=null + failure → 显示「拉取失败」+ 重试按钮
  */
 import { ArrowDownOutlined, ArrowUpOutlined } from '@ant-design/icons';
 import { Card, Col, Empty, Row, Statistic, Typography } from 'antd';
 import { formatPct, STOCK_COLORS } from '@/utils/format';
 import type { LimitPoolModule } from '@/types/modules';
+import ModuleFailure, { type ModuleFailureInfo } from './ModuleFailure';
 
 const { Text } = Typography;
 const TOP_N = 5;
 
 interface LimitStatsProps {
   data: LimitPoolModule | null;
+  failure?: ModuleFailureInfo | null;
+  onRetry?: () => void;
 }
 
-export default function LimitStats({ data }: LimitStatsProps) {
+export default function LimitStats({ data, failure, onRetry }: LimitStatsProps) {
   if (!data) {
     return (
       <Card title="涨跌停统计" size="small">
-        <Empty description="该日无涨跌停数据" />
+        {failure ? <ModuleFailure error={failure.error} onRetry={onRetry} /> : <Empty description="该日无涨跌停数据" />}
       </Card>
     );
   }

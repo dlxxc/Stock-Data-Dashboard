@@ -1,27 +1,26 @@
 /**
  * 行业资金流 TOP5（需求 1.4 - 模块 3）
  *
- * 字段：industry_inflow / industry_outflow 各取 TOP5
- * 字段：name / net_inflow / pct / leader
- * 布局：纯 CSS 双向条形图，红涨流入靠右，绿跌流出靠左
- *
- * 不引入 ECharts：双向条形用 div + 绝对定位即可，与 widget 预览一致。
+ * 1.7 失败处理：data=null + failure → 显示「拉取失败」+ 重试按钮
  */
 import { Card, Empty, Typography } from 'antd';
 import { formatSignedAmount, STOCK_COLORS } from '@/utils/format';
 import type { MoneyFlowModule, IndustryFlowItem } from '@/types/modules';
+import ModuleFailure, { type ModuleFailureInfo } from './ModuleFailure';
 
 const { Text } = Typography;
 
 interface IndustryFlowChartProps {
   data: MoneyFlowModule | null;
+  failure?: ModuleFailureInfo | null;
+  onRetry?: () => void;
 }
 
-export default function IndustryFlowChart({ data }: IndustryFlowChartProps) {
+export default function IndustryFlowChart({ data, failure, onRetry }: IndustryFlowChartProps) {
   if (!data) {
     return (
       <Card title="行业资金流 TOP5" size="small">
-        <Empty description="该日无资金流数据" />
+        {failure ? <ModuleFailure error={failure.error} onRetry={onRetry} /> : <Empty description="该日无资金流数据" />}
       </Card>
     );
   }

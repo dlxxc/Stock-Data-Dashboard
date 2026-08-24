@@ -1,25 +1,27 @@
 /**
  * 板块涨跌广度（需求 1.4 - 模块 4）
  *
- * 字段：total / up_count / down_count / flat_count + sectors[].name/pct
- * 布局：3 个统计卡（上/平/下）+ 进度条 + TOP3 涨幅 / TOP3 跌幅 双栏列表
+ * 1.7 失败处理：data=null + failure → 显示「拉取失败」+ 重试按钮
  */
 import { Card, Col, Empty, Row, Typography } from 'antd';
 import { formatPct, STOCK_COLORS } from '@/utils/format';
 import type { SectorBreadthModule } from '@/types/modules';
+import ModuleFailure, { type ModuleFailureInfo } from './ModuleFailure';
 
 const { Text } = Typography;
 const TOP_N = 3;
 
 interface SectorBreadthProps {
   data: SectorBreadthModule | null;
+  failure?: ModuleFailureInfo | null;
+  onRetry?: () => void;
 }
 
-export default function SectorBreadth({ data }: SectorBreadthProps) {
+export default function SectorBreadth({ data, failure, onRetry }: SectorBreadthProps) {
   if (!data) {
     return (
       <Card title="板块涨跌广度" size="small">
-        <Empty description="该日无板块广度数据" />
+        {failure ? <ModuleFailure error={failure.error} onRetry={onRetry} /> : <Empty description="该日无板块广度数据" />}
       </Card>
     );
   }
