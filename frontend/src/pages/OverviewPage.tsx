@@ -66,7 +66,9 @@ function OverviewPage() {
   if (state.status === 'loading') {
     return (
       <div style={{ textAlign: 'center', padding: '80px 0' }}>
-        <Spin size="large" tip="正在读取上次快照..." />
+        <Spin tip="正在读取上次快照..." size="large">
+          <div style={{ padding: '30px' }} />
+        </Spin>
       </div>
     );
   }
