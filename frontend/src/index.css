@@ -1,4 +1,8 @@
 /* 全局样式 */
+
+/* Fira Code：用于所有数字（指数点位 / 涨跌幅 / 金额 / 连板数等） */
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&display=swap');
+
 html,
 body,
 #root {
@@ -12,4 +16,10 @@ body {
     'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* 数字等宽工具类（按需在组件中加 className="num-mono"） */
+.num-mono {
+  font-family: 'Fira Code', 'JetBrains Mono', Consolas, monospace;
+  font-variant-numeric: tabular-nums;
 }
