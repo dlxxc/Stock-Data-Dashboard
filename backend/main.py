@@ -12,8 +12,9 @@
 import asyncio
 import json
 import logging
+from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import AsyncGenerator
+from typing import AsyncGenerator, AsyncIterator
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,11 +37,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger("stock_dashboard")
 
+
+# ========== 生命周期 ==========
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """应用生命周期：启动时初始化数据库，停止时无需特殊处理。"""
+    init_db()
+    logger.info("数据库初始化完成")
+    yield
+
+
 # ========== FastAPI 应用 ==========
 app = FastAPI(
-    title="股票数据看板 API",
+    title="A股数据看板工具 API",
     version="0.1.0",
     description="A股盘后复盘工具后端",
+    lifespan=lifespan,
 )
 
 # 允许前端跨域（开发期 Vite 跑在 5173 端口）
@@ -51,13 +63,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-def on_startup() -> None:
-    """应用启动时初始化数据库"""
-    init_db()
-    logger.info("数据库初始化完成")
 
 
 # ========== 健康检查 ==========
