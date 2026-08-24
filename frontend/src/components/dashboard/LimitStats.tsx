@@ -72,7 +72,7 @@ export default function LimitStats({ data }: LimitStatsProps) {
                     borderRadius: 4,
                   }}
                 >
-                  {s.times_limit}板
+                  {Math.round(s.times_limit)}板
                 </span>
               </div>
             ))

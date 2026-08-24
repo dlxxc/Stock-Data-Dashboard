@@ -1,9 +1,10 @@
 """资金流数据模块
 
-拉取行业资金流和个股资金流 TOP。
-akshare 接口：
-- stock_sector_fund_flow_rank(indicator="今日", sector_type="行业资金流")
-- stock_individual_fund_flow_rank(indicator="今日")
+拉取行业资金流 TOP（净流入/流出）。
+akshare 接口：stock_fund_flow_industry()（新浪数据源，稳定性更好）
+
+注：新浪数据源仅提供行业资金流，不提供个股资金流。
+个股资金流字段（stock_inflow/stock_outflow）保留为空列表。
 """
 from typing import Any
 
@@ -14,16 +15,15 @@ def fetch(trade_date: str) -> dict[str, Any]:
     """拉取资金流数据。
 
     Args:
-        trade_date: 交易日 YYYY-MM-DD（akshare 此接口返回当日数据，
-                    trade_date 仅用于存档标记）
+        trade_date: 交易日 YYYY-MM-DD（仅用于存档标记）
 
     Returns:
         {
             "trade_date": "2026-08-22",
-            "industry_inflow": [{"name": "...", "net_inflow": 28.7, ...}, ...],  # TOP5
+            "industry_inflow": [{"name": "...", "net_inflow": 2.87e9, ...}, ...],  # TOP5
             "industry_outflow": [...],  # TOP5
-            "stock_inflow": [{"name": "...", "code": "...", ...}, ...],  # TOP10
-            "stock_outflow": [...],  # TOP10
+            "stock_inflow": [],  # 新浪无此数据
+            "stock_outflow": [],  # 新浪无此数据
         }
 
     Raises:
@@ -43,27 +43,27 @@ def fetch(trade_date: str) -> dict[str, Any]:
         except (TypeError, ValueError):
             return default
 
-    # ---- 行业资金流 ----
+    # 新浪数据源：行业资金流
+    # 返回列：序号/行业/行业指数/行业-涨跌幅/流入资金/流出资金/净额/公司家数/领涨股/领涨股-涨跌幅/当前价
     try:
-        df_industry = ak.stock_sector_fund_flow_rank(
-            indicator="今日", sector_type="行业资金流"
-        )
+        df_industry = ak.stock_fund_flow_industry()
     except Exception as e:
         raise RuntimeError(f"行业资金流拉取失败: {e}") from e
 
     if df_industry is None or df_industry.empty:
         raise RuntimeError("行业资金流返回空数据")
 
-    # akshare 列名：名称/今日主力净流入-净额/今日主力净流入-净占比/今日涨跌幅/...
-    # 转换为列表并按净额排序
+    # 新浪净额单位为"亿"，需转换为"元"（×1e8）
+    YI_TO_YUAN = 1e8
+
     industry_list = []
     for _, row in df_industry.iterrows():
-        net_inflow = to_float(row.get("今日主力净流入-净额"))
+        net_inflow_yi = to_float(row.get("净额"))
         industry_list.append({
-            "name": str(row.get("名称", "")),
-            "net_inflow": net_inflow,  # 单位：元（前端展示时转亿）
-            "pct": to_float(row.get("今日涨跌幅")),
-            "leader": str(row.get("今日主力净流入最大股", "")),
+            "name": str(row.get("行业", "")),
+            "net_inflow": net_inflow_yi * YI_TO_YUAN,
+            "pct": to_float(row.get("行业-涨跌幅")),
+            "leader": str(row.get("领涨股", "")),
         })
 
     # 净流入 TOP5（按净额降序）
@@ -77,36 +77,5 @@ def fetch(trade_date: str) -> dict[str, Any]:
         industry_list, key=lambda x: x["net_inflow"]
     )
     result["industry_outflow"] = sorted_by_outflow[:5]
-
-    # ---- 个股资金流 ----
-    try:
-        df_stock = ak.stock_individual_fund_flow_rank(indicator="今日")
-    except Exception as e:
-        raise RuntimeError(f"个股资金流拉取失败: {e}") from e
-
-    if df_stock is None or df_stock.empty:
-        raise RuntimeError("个股资金流返回空数据")
-
-    stock_list = []
-    for _, row in df_stock.iterrows():
-        stock_list.append({
-            "code": str(row.get("代码", "")),
-            "name": str(row.get("名称", "")),
-            "net_inflow": to_float(row.get("今日主力净流入-净额")),
-            "pct": to_float(row.get("今日涨跌幅")),
-            "price": to_float(row.get("最新价")),
-        })
-
-    # 净流入 TOP10
-    sorted_stock_in = sorted(
-        stock_list, key=lambda x: x["net_inflow"], reverse=True
-    )
-    result["stock_inflow"] = sorted_stock_in[:10]
-
-    # 净流出 TOP10
-    sorted_stock_out = sorted(
-        stock_list, key=lambda x: x["net_inflow"]
-    )
-    result["stock_outflow"] = sorted_stock_out[:10]
 
     return result

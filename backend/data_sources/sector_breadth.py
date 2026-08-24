@@ -1,7 +1,7 @@
 """板块广度数据模块
 
 拉取行业板块涨跌家数（方向广度）。
-akshare 接口：stock_board_industry_name_em()
+akshare 接口：stock_board_industry_summary_ths()（同花顺数据源，稳定性更好）
 """
 from typing import Any
 
@@ -33,7 +33,7 @@ def fetch(trade_date: str) -> dict[str, Any]:
         RuntimeError: akshare 调用失败或数据为空
     """
     try:
-        df = ak.stock_board_industry_name_em()
+        df = ak.stock_board_industry_summary_ths()
     except Exception as e:
         raise RuntimeError(f"板块广度拉取失败: {e}") from e
 
@@ -46,6 +46,7 @@ def fetch(trade_date: str) -> dict[str, Any]:
         except (TypeError, ValueError):
             return default
 
+    # 同花顺返回列：序号/板块/涨跌幅/总成交量/总成交额/净流入/上涨家数/下跌家数/均价/领涨股/领涨股-最新价/领涨股-涨跌幅
     sectors = []
     up_count = 0
     down_count = 0
@@ -53,6 +54,10 @@ def fetch(trade_date: str) -> dict[str, Any]:
 
     for _, row in df.iterrows():
         pct = to_float(row.get("涨跌幅"))
+        up = int(row.get("上涨家数", 0) or 0)
+        down = int(row.get("下跌家数", 0) or 0)
+
+        # 用上涨/下跌家数来统计广度（同花顺无平盘家数，用总家数减去上下来估算）
         if pct > 0:
             up_count += 1
         elif pct < 0:
@@ -61,11 +66,10 @@ def fetch(trade_date: str) -> dict[str, Any]:
             flat_count += 1
 
         sectors.append({
-            "name": str(row.get("板块名称", "")),
+            "name": str(row.get("板块", "")),
             "pct": pct,
-            "leader": str(row.get("领涨股票", "")),
-            "leader_pct": to_float(row.get("领涨股票-涨跌幅")),
-            "total_mv": to_float(row.get("总市值")),
+            "leader": str(row.get("领涨股", "")),
+            "leader_pct": to_float(row.get("领涨股-涨跌幅")),
         })
 
     total = len(sectors)

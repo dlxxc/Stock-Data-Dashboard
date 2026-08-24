@@ -104,8 +104,8 @@ export interface SectorItem {
   leader: string;
   /** 领涨股涨跌幅 */
   leader_pct: number;
-  /** 总市值 */
-  total_mv: number;
+  /** 总市值（可选，部分数据源不提供） */
+  total_mv?: number;
 }
 
 export interface SectorBreadthModule {
