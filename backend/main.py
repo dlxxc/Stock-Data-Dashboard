@@ -12,6 +12,7 @@
 import asyncio
 import json
 import logging
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import AsyncGenerator, AsyncIterator
@@ -123,6 +124,8 @@ async def refresh_data() -> EventSourceResponse:
             fetcher = FETCHERS[module_name]
             error_msg = None
             status = "ok"
+            max_retries = 3  # 最多重试 3 次
+            retry_delay = 1  # 初始延迟 1 秒，指数递增
 
             # 推送"开始拉取"事件
             yield {
@@ -137,23 +140,36 @@ async def refresh_data() -> EventSourceResponse:
             }
 
             # 在线程池中执行同步的 akshare 调用，避免阻塞事件循环
-            try:
-                loop = asyncio.get_event_loop()
-                data = await loop.run_in_executor(None, fetcher, trade_date)
-                # 存档
-                save_snapshot(trade_date, module_name, data, status="ok")
-                ok_count += 1
-            except Exception as e:
-                error_msg = str(e)
-                status = "failed"
-                # 失败也存档（status=failed），便于追踪
-                save_snapshot(
-                    trade_date, module_name, {"error": error_msg},
-                    status="failed", error_msg=error_msg,
-                )
-                fail_count += 1
-                fail_modules.append(module_name)
-                logger.warning(f"模块 {module_name} 拉取失败: {error_msg}")
+            for attempt in range(1, max_retries + 1):
+                try:
+                    loop = asyncio.get_event_loop()
+                    data = await loop.run_in_executor(None, fetcher, trade_date)
+                    # 存档
+                    save_snapshot(trade_date, module_name, data, status="ok")
+                    ok_count += 1
+                    break  # 成功则跳出重试循环
+                except Exception as e:
+                    error_msg = str(e)
+                    status = "failed"
+                    if attempt < max_retries:
+                        # 还有重试机会，等待后重试
+                        logger.warning(
+                            f"模块 {module_name} 第{attempt}次失败，"
+                            f"{retry_delay}s 后重试: {error_msg}"
+                        )
+                        await asyncio.sleep(retry_delay)
+                        retry_delay *= 2  # 指数退避
+                    else:
+                        # 全部重试失败
+                        save_snapshot(
+                            trade_date, module_name, {"error": error_msg},
+                            status="failed", error_msg=error_msg,
+                        )
+                        fail_count += 1
+                        fail_modules.append(module_name)
+                        logger.warning(
+                            f"模块 {module_name} 全部{max_retries}次重试失败: {error_msg}"
+                        )
 
             # 推送"完成"事件
             yield {
