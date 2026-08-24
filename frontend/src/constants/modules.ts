@@ -4,7 +4,7 @@
  * 与 backend/config.py 中 ALL_MODULES 保持同步。
  */
 export const MODULE_LABELS: Record<string, string> = {
-  indices: '5大指数',
+  indices: '4大指数',
   limit_pool: '涨跌停池',
   money_flow: '行业资金流',
   sector_breadth: '板块涨跌广度',

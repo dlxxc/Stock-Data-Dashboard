@@ -1,8 +1,8 @@
 /**
- * 5 大指数卡片（需求 1.4 - 模块 1）
+ * 4 大指数卡片（需求 1.4 - 模块 1）
  *
  * 字段：name / value / change / pct / amount
- * 布局：5 列响应式网格，每张卡含指数名 + 大字点位 + 涨跌额 + 涨跌幅 + 成交额
+ * 布局：4 列响应式网格，每张卡含指数名 + 大字点位 + 涨跌额 + 涨跌幅 + 成交额
  * 配色：红涨绿跌，Fira Code 字体强化数字感
  */
 import { Card, Col, Empty, Row, Typography } from 'antd';
@@ -18,14 +18,14 @@ interface IndexCardsProps {
 export default function IndexCards({ data }: IndexCardsProps) {
   if (!data || !data.indices || data.indices.length === 0) {
     return (
-      <Card title="5 大指数" size="small">
+      <Card title="4 大指数" size="small">
         <Empty description="该日无指数数据" />
       </Card>
     );
   }
 
   return (
-    <Card title="5 大指数" size="small">
+    <Card title="4 大指数" size="small">
       <Row gutter={[12, 12]}>
         {data.indices.map((idx) => {
           const color = pctColor(idx.pct);
