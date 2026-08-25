@@ -1,7 +1,7 @@
 # 股票数据看板工具 · 项目记忆文档
 
 > 本文档为项目的"唯一事实来源"（Single Source of Truth），所有功能、决策、进度以此为准。
-> 创建日期：2026-08-24 · 版本：v1.1（阶段 2.2/2.3 阈值配置打磨 + 异动筛选集中展示 + 路由顺序修复，用户验收全部通过）
+> 创建日期：2026-08-24 · 版本：v1.3（阶段 2 全部完成，用户验收全部通过）
 
 ---
 
@@ -411,8 +411,8 @@
 - [x] **2.1 自选股管理**：增删查改 ✅ 2026-08-25（自测通过，用户验收通过）
 - [x] **2.2 自选股异动阈值**：单票弹窗 + 批量设置 + 一键重置默认值 ✅ 2026-08-25
 - [x] **2.3 自选股异动筛选**：盘后统一筛选超阈值票集中展示（总览紧凑卡片 + 自选股页 Tabs 区域） ✅ 2026-08-25
-- [x] **2.4 龙虎榜模块**：榜单明细（净买入 TOP + 前 5 买卖席位） ✅ 2026-08-25
-- [ ] **2.5 风险预警详情**：Top3 风险规则计算与详情页
+- [x] **2.4 龙虎榜模块**：榜单明细（净买入 TOP + 前 5 买卖席位） ✅ 2026-08-25（用户验收通过）
+- [x] **2.5 风险预警详情**：Top3 风险规则计算与详情页 ✅ 2026-08-25（用户验收通过）
 
 #### 开发步骤（3次）
 
@@ -420,7 +420,7 @@
 |---|---|---|---|
 | 第1次开发 | 2.1 | 自选股管理基础 | ✅ 验收通过 2026-08-25 |
 | 第2次开发 | 2.2 + 2.3 | 异动阈值配置 + 筛选展示 | ✅ 用户验收通过 2026-08-25 |
-| 第3次开发 | 2.4 + 2.5 | 龙虎榜 + 风险预警详情 | 🔄 2.4 已完成，2.5 待开发 |
+| 第3次开发 | 2.4 + 2.5 | 龙虎榜 + 风险预警详情 | ✅ 全部验收通过 2026-08-25 |
 
 #### 阶段 2 第1次开发（2.1）验收记录（2026-08-25）
 
@@ -662,6 +662,70 @@
 
 ---
 
+#### 阶段 2 第 3 次开发（2.5 风险预警详情）验收记录（2026-08-25）
+
+**完成内容**：
+
+**后端增强**：
+- 修改 [risk.py](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/backend/risk.py)：为所有 trigger 添加 3 个字段
+  - `current_value`：当前值（原始数字，如 65）
+  - `yellow_threshold`：黄线阈值（如 50）
+  - `red_threshold`：红线阈值（如 100）
+- 4 个风险维度函数全部增强：`_check_limit_pool` / `_check_capital_retreat` / `_check_index_breakdown`
+
+**前端**：
+- 更新 [types/risk.ts](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/types/risk.ts)：`RiskTrigger` 接口新增 3 个字段类型定义
+- 新建 [RiskDetailDrawer.tsx](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/components/dashboard/RiskDetailDrawer.tsx)（360 行）：
+  - 入口：Drawer（从右侧滑出，宽度 680px）
+  - 顶部：综合风险等级卡片（复用 RiskLabel 样式）
+  - 4 个风险维度卡片（DimensionCard 组件）：
+    - 情绪过热（涨停数）：FireOutlined 红色图标 + TOP5 涨停列表
+    - 情绪过冷（跌停数）：ExclamationCircleOutlined 绿色图标 + TOP5 跌停列表
+    - 资金撤退（行业净流出占比）：DollarOutlined 金色图标 + TOP5 净流出行业
+    -大盘破位（上证跌幅）：FallOutlined 蓝色图标 + 4 大指数列表
+  - 每个维度卡片包含：
+    - 当前值 + 阈值对比文案（黄线 XX / 红线 XX）
+    - 进度条可视化（颜色根据触发等级：绿/黄/红）
+    - TOP5 明细列表（从 snapshot 模块读取）
+    - 底部「查看完整榜单 →」链接（关闭 Drawer + 滚动到总览对应模块）
+  - 失败兜底：3 类空态（未归档 / 模块失败 / 网络错误）
+  - 历史回看：接收 `tradeDate` prop，完全联动总览页日期选择器
+- 修改 [RiskLabel.tsx](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/components/dashboard/RiskLabel.tsx)：新增 `onShowDetail` 回调 prop + 右上角「详情」按钮（InfoCircleOutlined 图标）
+- 修改 [OverviewPage.tsx](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/pages/OverviewPage.tsx)：
+  - 新增 `riskDetailOpen` state + `setRiskDetailOpen` 回调
+  - RiskLabel 传入 `onShowDetail={() => setRiskDetailOpen(true)}`
+  - 集成 RiskDetailDrawer 组件，传入 `tradeDate={historyDate ?? trade_date}`
+  - 为 3 个模块卡片包裹 `<div id="xxx">`：`index-cards` / `limit-stats` / `industry-flow`
+
+**关键决策**（2026-08-25 阶段 2.5）：
+
+| 决策项 | 选择 | 原因 |
+|---|---|---|
+| 详情入口形态 | Drawer 抽屉（从右侧滑出） | 符合"盘后复盘快速浏览"场景，不离开总览页，可边看详情边对照总览数据 |
+| 详情页内容 | 4 个维度卡片 + 当前值/阈值对比 + 进度条 + TOP5 明细列表 | 用户确认：要明细列表但只 TOP5，不要历史趋势图 |
+| 接口复用 | 完全复用现有 `/api/risk` + `/api/snapshot` | 无需新接口，前端组装数据；符合军规 7「禁止过度设计」 |
+| 历史回看联动 | 完全联动总览页日期选择器 | Drawer 内不单独提供日期选择器，避免两个选择器冲突 |
+| 进度条颜色 | 根据触发等级着色（绿/黄/红） | 与 RiskLabel 的 Tag 颜色保持一致，视觉预警信号清晰 |
+| 查看完整榜单 | 关闭 Drawer + `scrollIntoView` 滚动定位 | 用户点击后回到总览页对应模块，体验流畅 |
+| 后端端口切换 | 8002 → 8003 | 8002 被僵尸进程占用（PID 10720 无法杀掉），清理 __pycache__ 后用 8003 重启 |
+
+**验收结果**（自测通过，2026-08-25）：
+
+| 层级 | 验证方式 | 结果 |
+|---|---|---|
+| **后端接口** | `tests/test_phase2_5_risk_detail.py`（urllib 打真实 8003 接口） | ✅ **验证通过**：triggers 包含 current_value/yellow_threshold/red_threshold，类型正确 |
+| **TypeScript 编译** | `npx tsc --noEmit --project tsconfig.json` | ✅ **0 错误**，exit_code=0 |
+| **代码完整性** | RiskDetailDrawer 360 行 + RiskLabel 增强 + OverviewPage 集成 + 3 个锚点 ID | ✅ 全部文件已创建/修改 |
+
+**用户验收**：✅ 通过 2026-08-25（所有功能正常）
+
+**已知事项（非阻塞）**：
+- 后端端口已从 8002 切换到 8003（8002 僵尸进程占用）
+- 前端 Vite 代理已同步更新为 8003
+- 下次开机后 8002 端口会自动释放
+
+---
+
 ### 阶段 3：资讯与 AI（增强功能验收后，分2次开发）
 
 #### 任务清单
@@ -773,6 +837,13 @@
 | 2026-08-25 | 龙虎榜排序 | 后端按净买额降序，前端不可点击排序（无 sorter 属性） | 净买入额 = 主力资金净流入，复盘最有情报价值；前端 sorter 在 null 对比时产生不稳定排序（重复行），直接去掉 |
 | 2026-08-25 | 龙虎榜刷新位置 | `ALL_MODULES` 中 dragon_tiger 放在 watchlist_quotes 之后、indices 之前 | 两个模块都用 8 worker 并发，但龙虎榜只在刷新瞬间跑一次（非循环），放在 watchlist_quotes 之后不影响 |
 | 2026-08-25 | 端口 8001 僵尸进程 | Windows 内核级 socket 残留（PID 19948），无法在用户态杀掉，后端临时跑在 8002 | 下次开机自动释放；vite.config.ts 代理已同步指向 8002 |
+| 2026-08-25 | 阶段2.5 详情入口形态 | Drawer 抽屉（从右侧滑出，680px） | 符合"盘后复盘快速浏览"场景，不离开总览页，可对照总览数据 |
+| 2026-08-25 | 阶段2.5 详情内容 | 4 个维度卡片，只带 TOP5，不要历史趋势图 | 用户确认：要明细列表但只 TOP5，不要历史趋势图 |
+| 2026-08-25 | 阶段2.5 接口复用 | 完全复用 `/api/risk` + `/api/snapshot` | 无需新接口，前端组装数据；符合军规 7「禁止过度设计」 |
+| 2026-08-25 | 阶段2.5 历史回看联动 | 完全联动总览页日期选择器 | Drawer 内不设独立选择器，避免两个选择器冲突 |
+| 2026-08-25 | 阶段2.5 进度条颜色 | 根据触发等级着色（绿/黄/红） | 与 RiskLabel 的 Tag 颜色一致，视觉预警清晰 |
+| 2026-08-25 | 阶段2.5 查看完整榜单 | 关闭 Drawer + `scrollIntoView` 滚动定位 | 点击后回到总览页对应模块，体验流畅 |
+| 2026-08-25 | 端口切换 8002→8003 | 8002 被僵尸进程占用（PID 10720 无法杀掉） | 清理 __pycache__ 后用 8003 重启；前端 Vite 代理已同步更新 |
 
 ---
 
@@ -793,4 +864,4 @@
 
 ---
 
-*文档版本：v1.2 · 状态：阶段 2.4 龙虎榜已完成（81/81 测试通过，6/6 验收清单全绿，2 项 Bug 修复）。下一次开发：阶段 2.5 风险预警详情*
+*文档版本：v1.3 · 状态：阶段 2 全部完成（2.1-2.5 用户验收全部通过）。下一步：阶段 3 资讯与 AI*
