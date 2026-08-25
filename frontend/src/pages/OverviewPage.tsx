@@ -19,6 +19,7 @@ import { refreshData, type RefreshDoneEvent, type RefreshProgressEvent } from '@
 import TradeDateAlert from '@/components/dashboard/TradeDateAlert';
 import HistoryDatePicker from '@/components/dashboard/HistoryDatePicker';
 import RiskLabel from '@/components/dashboard/RiskLabel';
+import WatchlistAlertsCard from '@/components/dashboard/WatchlistAlertsCard';
 import IndexCards from '@/components/dashboard/IndexCards';
 import LimitStats from '@/components/dashboard/LimitStats';
 import IndustryFlowChart from '@/components/dashboard/IndustryFlowChart';
@@ -378,6 +379,8 @@ function OverviewPage() {
           description={riskError}
         />
       ) : null}
+      {/* 阶段 2.3 · 自选股异动紧凑卡片（情报头版，紧跟风险） */}
+      <WatchlistAlertsCard tradeDate={historyDate ?? trade_date} />
       <IndexCards data={indices} failure={getFailure('indices')} onRetry={retryHandler} />
       <LimitStats data={limitPool} failure={getFailure('limit_pool')} onRetry={retryHandler} />
       <IndustryFlowChart data={moneyFlow} failure={getFailure('money_flow')} onRetry={retryHandler} />

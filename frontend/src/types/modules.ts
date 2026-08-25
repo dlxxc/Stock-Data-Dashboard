@@ -118,3 +118,29 @@ export interface SectorBreadthModule {
   down_pct: number;
   sectors: SectorItem[];
 }
+
+// ---------- watchlist_quotes：自选股当日行情 ----------
+export interface WatchlistQuote {
+  /** 6 位规范代码（不含 sh/sz 前缀） */
+  code: string;
+  name: string | null;
+  /** 最新价（元） */
+  price: number | null;
+  /** 涨跌幅（百分比，正数涨/负数跌） */
+  pct_chg: number | null;
+  /** 换手率（百分比） */
+  turnover_rate: number | null;
+  /** 成交量（手） */
+  volume: number | null;
+  /** 成交额（元） */
+  amount: number | null;
+}
+
+export interface WatchlistQuotesModule {
+  trade_date: string;
+  /** 匹配到的自选股行情数量 */
+  total: number;
+  /** 当前自选股总数（前端展示对齐用） */
+  watch_count: number;
+  quotes: WatchlistQuote[];
+}

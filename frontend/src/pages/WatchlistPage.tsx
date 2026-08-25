@@ -1,17 +1,22 @@
 /**
- * 自选股管理页面（阶段 2.1）
+ * 自选股管理页面（阶段 2.2 阈值打磨 + 阶段 2.3 异动筛选展示）
  *
- * 功能：
- * - 列表展示：代码、名称、3 个阈值（涨/跌/换手）、操作
- * - 新增：按钮 → Modal（代码/名称 必填，阈值可选填，默认 5/5/10）
- * - 删除：按钮 → Popconfirm 确认
- * - 编辑阈值：按钮 → Modal（只显示 3 个阈值输入框，当前值为初始值）
+ * 2.2 新增：
+ * - 单票编辑弹窗：「一键重置为默认值」按钮
+ * - 表格多选 + 顶部批量操作（批量设置阈值 / 批量重置默认值）
+ * - 批量设置 Modal：3 阈值独立可填（未填=不改），全选/多选
+ *
+ * 2.3 新增：
+ * - 顶部「今日触发异动」区域（Tabs：涨超 / 跌超 / 换手超 / 全部）
+ * - 表格行根据触发状态显示高亮条（左 border，红/绿/黄，多重不冲突）
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   App as AntdApp,
   Button,
+  Checkbox,
+  Divider,
   Form,
   Input,
   InputNumber,
@@ -21,18 +26,32 @@ import {
   Spin,
   Statistic,
   Table,
+  Tabs,
   Tag,
   Typography,
 } from 'antd';
-import { PlusOutlined, SettingOutlined, DeleteOutlined } from '@ant-design/icons';
-import type { ColumnsType } from 'antd/es/table';
+import type { ColumnsType, TableRowSelection } from 'antd/es/table/interface';
+import {
+  PlusOutlined,
+  SettingOutlined,
+  DeleteOutlined,
+  ReloadOutlined,
+  SettingTwoTone,
+  ThunderboltOutlined,
+  RiseOutlined,
+  FallOutlined,
+  SwapOutlined,
+} from '@ant-design/icons';
 import {
   addWatchItem,
+  batchUpdateWatchThresholds,
   deleteWatchItem,
+  getWatchlistAlerts,
   listWatchlist,
   updateWatchThresholds,
 } from '@/api/watchlist';
-import type { WatchItem } from '@/types/watchlist';
+import type { AlertItem, WatchItem } from '@/types/watchlist';
+import { pctColor as colorPct, formatPct } from '@/utils/format';
 
 const { Title } = Typography;
 
@@ -45,26 +64,20 @@ const DEFAULT_TURNOVER_PCT = 10;
 function getErrorMessage(e: unknown, fallback = '操作失败'): string {
   if (!e) return fallback;
   const err = e as Record<string, any>;
-  // ① 标准 Error.message（axios 拦截器 new Error('后端错误：...') 会命中）
   if (typeof err.message === 'string' && err.message) return err.message;
-  // ② AxiosError.response.data.detail（绕过拦截器时）
   const d1 = err?.response?.data?.detail;
   if (typeof d1 === 'string' && d1) return d1;
-  // ③ AxiosError 状态码 + 文案
   const status = err?.response?.status;
   const statusText = err?.response?.statusText;
   if (typeof statusText === 'string' && statusText) {
     return status ? `请求失败 (${status} ${statusText})` : `请求失败 (${statusText})`;
   }
-  // ④ 对象直接带 data.detail
   const d2 = err?.data?.detail;
   if (typeof d2 === 'string' && d2) return d2;
-  // ⑤ toString()
   try {
     const s = typeof err.toString === 'function' ? err.toString() : String(e);
     if (s && s !== '[object Object]') return s;
   } catch { /* ignore */ }
-  // ⑥ JSON.stringify
   try {
     const j = JSON.stringify(e);
     if (j && j !== '{}') return j;
@@ -76,7 +89,6 @@ function getErrorMessage(e: unknown, fallback = '操作失败'): string {
 function isAntdFormError(e: unknown): boolean {
   if (!e || typeof e !== 'object') return false;
   const obj = e as Record<string, any>;
-  // antd 5 validateFields reject: { values, errorFields, outOfDate }
   return ('errorFields' in obj && Array.isArray(obj.errorFields)) || 'outOfDate' in obj;
 }
 
@@ -102,26 +114,80 @@ type EditFormValues = {
   turnover_pct: number;
 };
 
+/** 批量设置阈值 Form 值（所有字段可选，未填=不改） */
+type BatchEditFormValues = {
+  gain_pct?: number;
+  loss_pct?: number;
+  turnover_pct?: number;
+};
+
+type TabKey = 'gain' | 'loss' | 'turnover' | 'all';
+
 function WatchlistPage() {
-  // 通过 antd <App> 上下文拿到 message 实例（必须在外层 <ConfigProvider><App> 包裹内使用）
-  // 静态方法 messageApi.xxx() 在缺少上下文时会发出警告且可能不实际渲染 DOM 节点
   const { message: messageApi } = AntdApp.useApp();
 
+  // ============== 自选股列表 state ==============
   const [loading, setLoading] = useState(true);
   const [list, setList] = useState<WatchItem[]>([]);
   const [count, setCount] = useState(0);
-  // 兜底默认值会被 loadData() 拿到的接口返回覆盖；接口失败时 fallback 用 100
   const [maxSize, setMaxSize] = useState(100);
 
+  // ============== 新增弹窗 state ==============
   const [addOpen, setAddOpen] = useState(false);
   const [addSubmitting, setAddSubmitting] = useState(false);
   const [addForm] = Form.useForm<AddFormValues>();
 
+  // ============== 单票编辑弹窗 state ==============
   const [editItem, setEditItem] = useState<WatchItem | null>(null);
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editForm] = Form.useForm<EditFormValues>();
 
-  /** 加载列表数据 */
+  // ============== 多选 + 批量设置 state ==============
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [batchEditOpen, setBatchEditOpen] = useState(false);
+  const [batchEditSubmitting, setBatchEditSubmitting] = useState(false);
+  const [batchEditForm] = Form.useForm<BatchEditFormValues>();
+
+  // ============== 异动筛选 state ==============
+  const [alertsLoading, setAlertsLoading] = useState(false);
+  const [alerts, setAlerts] = useState<{
+    totalTriggered: number;
+    tradeDate: string;
+    groups: { gain: AlertItem[]; loss: AlertItem[]; turnover: AlertItem[] };
+    alertMap: Record<number, AlertItem>;
+    empty: boolean;
+    errorMsg?: string;
+  }>({
+    totalTriggered: 0,
+    tradeDate: '',
+    groups: { gain: [], loss: [], turnover: [] },
+    alertMap: {},
+    empty: true,
+  });
+  const [activeTab, setActiveTab] = useState<TabKey>('all');
+
+  // ============== 工具：错误 toast（双保险）==============
+  function fireErrorToast(e: unknown, fallback: string) {
+    if (isAntdFormError(e)) return;
+    const msg = getErrorMessage(e, fallback);
+    try {
+      const closeFn = messageApi.error(msg, 5);
+      const sentinel = `__antd_check_${Date.now()}`;
+      // eslint-disable-next-line no-console
+      console.error('[WatchlistPage][error-toast] fired', { msg, retType: typeof closeFn });
+      setTimeout(() => {
+        try {
+          const found = document.querySelector('.ant-message, .ant-message-notice, [class*="ant-message"]');
+          if (!found) window.alert(msg);
+        } catch { window.alert(msg); }
+        try { delete (window as any)[sentinel]; } catch { /* ignore */ }
+      }, 2000);
+    } catch {
+      window.alert(msg);
+    }
+  }
+
+  // ============== 数据加载 ==============
   async function loadData() {
     try {
       setLoading(true);
@@ -131,19 +197,54 @@ function WatchlistPage() {
       setMaxSize(data.max_size);
     } catch (e) {
       logError('loadData', e);
-      if (!isAntdFormError(e)) {
-        messageApi.error(getErrorMessage(e, '加载自选股失败'));
-      }
+      fireErrorToast(e, '加载自选股失败');
     } finally {
       setLoading(false);
     }
   }
 
+  async function loadAlerts() {
+    try {
+      setAlertsLoading(true);
+      const res = await getWatchlistAlerts();
+      if (res.empty) {
+        setAlerts({
+          totalTriggered: 0,
+          tradeDate: res.trade_date,
+          groups: { gain: [], loss: [], turnover: [] },
+          alertMap: {},
+          empty: true,
+          errorMsg: res.error,
+        });
+        return;
+      }
+      const map: Record<number, AlertItem> = {};
+      for (const it of res.items) map[it.id] = it;
+      setAlerts({
+        totalTriggered: res.total_triggered,
+        tradeDate: res.trade_date,
+        groups: {
+          gain: res.groups.gain.items,
+          loss: res.groups.loss.items,
+          turnover: res.groups.turnover.items,
+        },
+        alertMap: map,
+        empty: false,
+      });
+    } catch (e) {
+      logError('loadAlerts', e);
+      fireErrorToast(e, '加载异动筛选结果失败');
+    } finally {
+      setAlertsLoading(false);
+    }
+  }
+
   useEffect(() => {
-    loadData();
+    void loadData();
+    void loadAlerts();
   }, []);
 
-  /** 打开新增弹窗 */
+  // ============== 新增 ==============
   function openAddModal() {
     if (count >= maxSize) {
       messageApi.warning(`自选股已达上限 ${maxSize} 只，请先删除后再添加`);
@@ -158,12 +259,10 @@ function WatchlistPage() {
     setAddOpen(true);
   }
 
-  /** 提交新增 */
   async function handleAddOk() {
     try {
       const values = await addForm.validateFields();
       setAddSubmitting(true);
-      // 若用户未填阈值字段，传 undefined 让后端用默认值；如果填了就传用户值
       const payload: AddFormValues = {
         stock_code: values.stock_code,
         stock_name: values.stock_name,
@@ -176,61 +275,16 @@ function WatchlistPage() {
       setAddOpen(false);
       addForm.resetFields();
       await loadData();
+      await loadAlerts();
     } catch (e) {
       logError('handleAddOk', e);
-      // antd 表单校验失败（有 errorFields/outOfDate）不弹 toast，让 antd 在表单里显示红字；
-      // 其他任何错误（接口、网络、业务 4xx 等）一律弹 toast，文案走 6 层兜底提取
-      if (!isAntdFormError(e)) {
-        const msg = getErrorMessage(e, '添加失败');
-        // eslint-disable-next-line no-console
-        console.error('[DEBUG:handleAddOk]', {
-          typeofMessageApi: typeof messageApi,
-          hasErrorFn: typeof messageApi?.error,
-          messageText: msg,
-        });
-        // ====== 双保险错误提示机制 ======
-        // 先尝试 AntD message（视觉体验好），但因 React19 <-> antd5.22 App 上下文
-        // 存在注入不生效风险，所以 2 秒后检查 DOM：如果根本没渲染出 message 节点，
-        // 立即回退到原生 window.alert，确保用户"点了按钮一定有反馈"，杜绝静默失败。
-        const sentinelId = `__antd_msg_check_${Date.now()}`;
-        try {
-          window[sentinelId] = true;
-          const closeFn = messageApi.error(msg, 5 /* duration 5s */);
-          // eslint-disable-next-line no-console
-          console.error('[DEBUG:handleAddOk] messageApi.error 返回值类型:', typeof closeFn);
-          // 2 秒后检测 AntD toast 是否真的写入 DOM；没写入就用 alert 兜底
-          setTimeout(() => {
-            try {
-              delete window[sentinelId];
-              const domHasMessage = (
-                document.querySelector('.ant-message') ||
-                document.querySelector('[class*="ant-message"]') ||
-                document.querySelector('.ant-message-notice')
-              );
-              if (!domHasMessage) {
-                // eslint-disable-next-line no-console
-                console.warn('[DEBUG:handleAddOk] AntD toast 未注入 DOM，fallback 到 window.alert');
-                window.alert(msg);
-              } else {
-                // eslint-disable-next-line no-console
-                console.info('[DEBUG:handleAddOk] AntD toast 已成功渲染到 DOM');
-              }
-            } catch (_) { /* ignore */ }
-          }, 2000);
-        } catch (err2) {
-          // eslint-disable-next-line no-console
-          console.error('[DEBUG:handleAddOk] messageApi.error 调用本身抛异常:', err2);
-          try { delete window[sentinelId]; } catch (_) {}
-          // 终极兜底：原生 alert，极端情况下用户也能看到
-          window.alert(msg);
-        }
-      }
+      fireErrorToast(e, '添加失败');
     } finally {
       setAddSubmitting(false);
     }
   }
 
-  /** 打开编辑阈值弹窗 */
+  // ============== 单票编辑阈值（含一键重置默认）==============
   function openEditModal(item: WatchItem) {
     setEditItem(item);
     editForm.setFieldsValue({
@@ -240,7 +294,6 @@ function WatchlistPage() {
     });
   }
 
-  /** 提交编辑阈值 */
   async function handleEditOk() {
     if (!editItem) return;
     try {
@@ -254,47 +307,190 @@ function WatchlistPage() {
       messageApi.success('阈值更新成功');
       setEditItem(null);
       await loadData();
+      await loadAlerts();
     } catch (e) {
       logError('handleEditOk', e);
-      if (!isAntdFormError(e)) {
-        messageApi.error(getErrorMessage(e, '更新失败'));
-      }
+      fireErrorToast(e, '更新失败');
     } finally {
       setEditSubmitting(false);
     }
   }
 
-  /** 删除 */
+  /** 一键重置为默认值（当前编辑单票） */
+  async function handleResetSingleDefault() {
+    if (!editItem) return;
+    try {
+      setEditSubmitting(true);
+      await batchUpdateWatchThresholds({
+        ids: [editItem.id],
+        reset_to_default: true,
+      });
+      messageApi.success(`已重置为默认值（涨 ${DEFAULT_GAIN_PCT}% / 跌 ${DEFAULT_LOSS_PCT}% / 换手 ${DEFAULT_TURNOVER_PCT}%）`);
+      setEditItem(null);
+      await loadData();
+      await loadAlerts();
+    } catch (e) {
+      logError('handleResetSingleDefault', e);
+      fireErrorToast(e, '重置默认值失败');
+    } finally {
+      setEditSubmitting(false);
+    }
+  }
+
+  // ============== 删除 ==============
   async function handleDelete(itemId: number) {
     try {
       const res = await deleteWatchItem(itemId);
       if (res.deleted) {
         messageApi.success('删除成功');
+        setSelectedRowKeys((ks) => ks.filter((k) => k !== itemId));
         await loadData();
+        await loadAlerts();
       } else {
         messageApi.warning('记录不存在');
       }
     } catch (e) {
       logError('handleDelete', e);
-      if (!isAntdFormError(e)) {
-        messageApi.error(getErrorMessage(e, '删除失败'));
-      }
+      fireErrorToast(e, '删除失败');
     }
   }
 
+  // ============== 批量设置 ==============
+  function openBatchEdit() {
+    if (selectedRowKeys.length === 0) {
+      messageApi.warning('请先勾选要设置的自选股');
+      return;
+    }
+    batchEditForm.resetFields();
+    setBatchEditOpen(true);
+  }
+
+  async function handleBatchEditOk() {
+    if (selectedRowKeys.length === 0) {
+      messageApi.warning('请先勾选要设置的自选股');
+      return;
+    }
+    try {
+      setBatchEditSubmitting(true);
+      // 3 个都未填 → 提示用户
+      const values = await batchEditForm.validateFields();
+      const hasAny = (
+        values.gain_pct !== undefined && values.gain_pct !== null
+      ) || (
+        values.loss_pct !== undefined && values.loss_pct !== null
+      ) || (
+        values.turnover_pct !== undefined && values.turnover_pct !== null
+      );
+      if (!hasAny) {
+        messageApi.warning('请至少填写一个阈值字段，或点击「批量重置为默认值」');
+        return;
+      }
+      const ids = selectedRowKeys.map((k) => Number(k));
+      const res = await batchUpdateWatchThresholds({
+        ids,
+        gain_pct: values.gain_pct,
+        loss_pct: values.loss_pct,
+        turnover_pct: values.turnover_pct,
+      });
+      if (res.failed_ids?.length) {
+        messageApi.warning(`成功 ${res.updated} / ${ids.length}，失败 ${res.failed_ids.length} 条`);
+      } else {
+        messageApi.success(`批量修改成功（${res.updated} 只）`);
+      }
+      setBatchEditOpen(false);
+      batchEditForm.resetFields();
+      setSelectedRowKeys([]);
+      await loadData();
+      await loadAlerts();
+    } catch (e) {
+      logError('handleBatchEditOk', e);
+      fireErrorToast(e, '批量修改失败');
+    } finally {
+      setBatchEditSubmitting(false);
+    }
+  }
+
+  /** 批量重置为默认值（对选中项） */
+  async function handleBatchResetDefault() {
+    if (selectedRowKeys.length === 0) {
+      messageApi.warning('请先勾选要重置的自选股');
+      return;
+    }
+    try {
+      const ids = selectedRowKeys.map((k) => Number(k));
+      const res = await batchUpdateWatchThresholds({ ids, reset_to_default: true });
+      messageApi.success(`已批量重置为默认值（${res.updated} 只）`);
+      setSelectedRowKeys([]);
+      if (batchEditOpen) setBatchEditOpen(false);
+      await loadData();
+      await loadAlerts();
+    } catch (e) {
+      logError('handleBatchResetDefault', e);
+      fireErrorToast(e, '批量重置失败');
+    }
+  }
+
+  // ============== 表格多选配置 ==============
+  const rowSelection: TableRowSelection<WatchItem> = useMemo(() => ({
+    selectedRowKeys,
+    onChange: (keys) => setSelectedRowKeys(keys),
+    columnWidth: 48,
+  }), [selectedRowKeys]);
+
+  // ============== 表格列 ==============
   const columns: ColumnsType<WatchItem> = [
     {
       title: '股票代码',
       dataIndex: 'stock_code',
       key: 'stock_code',
-      width: 140,
+      width: 120,
       render: (v: string) => <span className="num-mono">{v}</span>,
     },
     {
       title: '股票名称',
       dataIndex: 'stock_name',
       key: 'stock_name',
-      width: 140,
+      width: 130,
+    },
+    {
+      title: '当日行情',
+      key: 'today_quote',
+      width: 220,
+      render: (_, record) => {
+        const al = alerts.alertMap[record.id];
+        if (!al) return <span style={{ color: '#999' }}>—</span>;
+        return (
+          <Space size={10} direction="vertical" style={{ lineHeight: 1.6 }}>
+            <span>
+              <span style={{ color: '#999', marginRight: 6 }}>价</span>
+              <span className="num-mono">{al.price !== null && al.price !== undefined ? al.price.toFixed(2) : '—'}</span>
+              <span style={{ color: '#999', marginLeft: 12, marginRight: 6 }}>涨跌</span>
+              <span
+                className="num-mono"
+                style={{
+                  color: colorPct(al.pct_chg ?? 0),
+                  fontWeight: 600,
+                }}
+              >
+                {al.pct_chg !== null && al.pct_chg !== undefined ? formatPct(al.pct_chg) : '—'}
+              </span>
+            </span>
+            <span>
+              <span style={{ color: '#999', marginRight: 6 }}>换手</span>
+              <span className="num-mono">
+                {al.turnover_rate !== null && al.turnover_rate !== undefined
+                  ? `${al.turnover_rate.toFixed(2)}%`
+                  : '—'}
+              </span>
+              {al.any_triggered && (
+                <Tag color="error" style={{ marginLeft: 8 }} icon={<ThunderboltOutlined />}>
+                  异动
+                </Tag>
+              )}
+            </span>
+          </Space>
+        );
+      },
     },
     {
       title: '涨幅阈值',
@@ -302,11 +498,15 @@ function WatchlistPage() {
       key: 'gain_pct',
       width: 110,
       align: 'right',
-      render: (v: number) => (
-        <span className="num-mono" style={{ color: '#cf1322' }}>
-          ≥ {v}%
-        </span>
-      ),
+      render: (v: number, record) => {
+        const al = alerts.alertMap[record.id];
+        const triggered = !!al?.gain_triggered;
+        return (
+          <span className="num-mono" style={{ color: triggered ? '#cf1322' : '#cf1322', fontWeight: triggered ? 700 : 400 }}>
+            ≥ {v}%{triggered ? ' ✓' : ''}
+          </span>
+        );
+      },
     },
     {
       title: '跌幅阈值',
@@ -314,11 +514,15 @@ function WatchlistPage() {
       key: 'loss_pct',
       width: 110,
       align: 'right',
-      render: (v: number) => (
-        <span className="num-mono" style={{ color: '#3f8600' }}>
-          ≥ {v}%
-        </span>
-      ),
+      render: (v: number, record) => {
+        const al = alerts.alertMap[record.id];
+        const triggered = !!al?.loss_triggered;
+        return (
+          <span className="num-mono" style={{ color: triggered ? '#3f8600' : '#3f8600', fontWeight: triggered ? 700 : 400 }}>
+            ≥ {v}%{triggered ? ' ✓' : ''}
+          </span>
+        );
+      },
     },
     {
       title: '换手率阈值',
@@ -326,16 +530,20 @@ function WatchlistPage() {
       key: 'turnover_pct',
       width: 120,
       align: 'right',
-      render: (v: number) => (
-        <span className="num-mono">
-          ≥ {v}%
-        </span>
-      ),
+      render: (v: number, record) => {
+        const al = alerts.alertMap[record.id];
+        const triggered = !!al?.turnover_triggered;
+        return (
+          <span className="num-mono" style={{ fontWeight: triggered ? 700 : 400 }}>
+            ≥ {v}%{triggered ? ' ✓' : ''}
+          </span>
+        );
+      },
     },
     {
       title: '操作',
       key: 'actions',
-      width: 180,
+      width: 160,
       fixed: 'right',
       render: (_, record) => (
         <Space size="small">
@@ -369,8 +577,123 @@ function WatchlistPage() {
     },
   ];
 
+  // ============== 今日触发 Tabs 渲染 ==============
+  function renderTriggerList(items: AlertItem[]) {
+    if (items.length === 0) {
+      return (
+        <div style={{ padding: '12px 8px', color: '#999', fontSize: 13 }}>
+          ✅ 暂无触发
+        </div>
+      );
+    }
+    return (
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '8px 4px 4px' }}>
+        {items.map((it) => (
+          <Tag
+            key={it.id}
+            color={
+              it.gain_triggered ? 'red' :
+              it.loss_triggered ? 'green' : 'gold'
+            }
+            style={{ padding: '4px 10px', fontSize: 13 }}
+          >
+            <b>{it.name}</b>
+            <span className="num-mono" style={{ marginLeft: 6, opacity: 0.85 }}>
+              {it.code}
+            </span>
+            {it.pct_chg !== null && it.pct_chg !== undefined && (
+              <span
+                className="num-mono"
+                style={{
+                  marginLeft: 6,
+                  color: colorPct(it.pct_chg),
+                  fontWeight: 600,
+                }}
+              >
+                {formatPct(it.pct_chg)}
+              </span>
+            )}
+            {it.turnover_rate !== null && it.turnover_rate !== undefined && it.turnover_triggered && !it.gain_triggered && !it.loss_triggered && (
+              <span className="num-mono" style={{ marginLeft: 6 }}>
+                换手 {it.turnover_rate.toFixed(2)}%
+              </span>
+            )}
+          </Tag>
+        ))}
+      </div>
+    );
+  }
+
+  const triggeredTabItems = [
+    {
+      key: 'all' as TabKey,
+      label: (
+        <span>
+          <ThunderboltOutlined style={{ color: '#d4380d' }} /> 全部触发
+          <Tag color="red" style={{ marginLeft: 6 }}>{alerts.totalTriggered}</Tag>
+        </span>
+      ),
+      children: (() => {
+        const all = [
+          ...alerts.groups.gain,
+          ...alerts.groups.loss.filter((x) => !alerts.groups.gain.find((g) => g.id === x.id)),
+          ...alerts.groups.turnover.filter(
+            (x) => !alerts.groups.gain.find((g) => g.id === x.id) && !alerts.groups.loss.find((l) => l.id === x.id),
+          ),
+        ];
+        return renderTriggerList(all);
+      })(),
+    },
+    {
+      key: 'gain' as TabKey,
+      label: (
+        <span>
+          <RiseOutlined style={{ color: '#cf1322' }} /> 涨超
+          <Tag color="red" style={{ marginLeft: 6 }}>{alerts.groups.gain.length}</Tag>
+        </span>
+      ),
+      children: renderTriggerList(alerts.groups.gain),
+    },
+    {
+      key: 'loss' as TabKey,
+      label: (
+        <span>
+          <FallOutlined style={{ color: '#3f8600' }} /> 跌超
+          <Tag color="green" style={{ marginLeft: 6 }}>{alerts.groups.loss.length}</Tag>
+        </span>
+      ),
+      children: renderTriggerList(alerts.groups.loss),
+    },
+    {
+      key: 'turnover' as TabKey,
+      label: (
+        <span>
+          <SwapOutlined style={{ color: '#d48806' }} /> 换手超
+          <Tag color="gold" style={{ marginLeft: 6 }}>{alerts.groups.turnover.length}</Tag>
+        </span>
+      ),
+      children: renderTriggerList(alerts.groups.turnover),
+    },
+  ];
+
+  // ============== 表格行高亮（触发状态，左边框）==============
+  function rowClassName(_record: WatchItem): string {
+    return 'watchlist-row';
+  }
+
+  const rowBorderStyle = (record: WatchItem): React.CSSProperties => {
+    const al = alerts.alertMap[record.id];
+    if (!al?.any_triggered) return {};
+    // 多重触发：优先涨（红） > 跌（绿） > 换手（黄）
+    const color = al.gain_triggered ? '#cf1322' : al.loss_triggered ? '#3f8600' : '#d48806';
+    return {
+      borderLeft: `4px solid ${color}`,
+      background: `${color}10`,
+    };
+  };
+
   return (
-    <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+    <div style={{ maxWidth: 1160, margin: '0 auto' }}>
       {/* 标题栏 */}
       <div
         style={{
@@ -387,7 +710,7 @@ function WatchlistPage() {
             自选股管理
           </Title>
           <div style={{ color: '#666', fontSize: 13, marginTop: 4 }}>
-            最多 {maxSize} 只 · 新增时不填阈值将使用默认值（涨 5% / 跌 5% / 换手 10%）
+            最多 {maxSize} 只 · 新增时不填阈值将使用默认值（涨 {DEFAULT_GAIN_PCT}% / 跌 {DEFAULT_LOSS_PCT}% / 换手 {DEFAULT_TURNOVER_PCT}%）
           </div>
         </div>
         <Space size={16}>
@@ -410,20 +733,156 @@ function WatchlistPage() {
 
       {/* 数量接近上限提示 */}
       {count > 0 && count >= maxSize - 3 && count < maxSize && (
-        <Alert
-          type="warning"
-          showIcon
-          message={`已添加 ${count}/${maxSize} 只，接近上限`}
-          style={{ marginBottom: 16 }}
-        />
+        <Alert type="warning" showIcon message={`已添加 ${count}/${maxSize} 只，接近上限`} style={{ marginBottom: 16 }} />
       )}
       {count >= maxSize && (
-        <Alert
-          type="error"
-          showIcon
-          message={`已达上限 ${maxSize} 只，无法继续添加`}
-          style={{ marginBottom: 16 }}
-        />
+        <Alert type="error" showIcon message={`已达上限 ${maxSize} 只，无法继续添加`} style={{ marginBottom: 16 }} />
+      )}
+
+      {/* ====================== 2.3 今日触发异动 Tabs 区 ====================== */}
+      <Spin spinning={alertsLoading} tip="加载异动筛选结果...">
+        <div
+          style={{
+            border: '1px solid #f0f0f0',
+            borderRadius: 8,
+            padding: '8px 16px 12px',
+            marginBottom: 18,
+            background: alerts.totalTriggered > 0 ? '#fff2f0' : '#fafafa',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: 4,
+              flexWrap: 'wrap',
+              gap: 8,
+            }}
+          >
+            <div style={{ fontSize: 14, fontWeight: 600 }}>
+              <ThunderboltOutlined style={{ color: alerts.totalTriggered > 0 ? '#d4380d' : '#8c8c8c', marginRight: 6 }} />
+              今日触发异动
+              {alerts.tradeDate && (
+                <span style={{ color: '#8c8c8c', fontWeight: 400, fontSize: 12, marginLeft: 10 }}>
+                  数据日期 {alerts.tradeDate}
+                </span>
+              )}
+            </div>
+            <Button
+              size="small"
+              icon={<ReloadOutlined />}
+              onClick={() => loadAlerts()}
+            >
+              刷新
+            </Button>
+          </div>
+
+          {alerts.errorMsg && (
+            <Alert
+              type="error"
+              showIcon
+              style={{ margin: '8px 0' }}
+              message={`行情模块失败：${alerts.errorMsg}`}
+              description="请返回「总览」点击顶部「刷新数据」重新拉取自选股行情后再试"
+            />
+          )}
+          {alerts.empty && !alerts.errorMsg && (
+            <Alert
+              type="info"
+              showIcon
+              style={{ margin: '8px 0' }}
+              message={count === 0 ? '暂无自选股，请先添加' : '暂无自选股行情数据'}
+              description={
+                count === 0
+                  ? '添加后刷新总览数据即可做异动筛选'
+                  : '请先在「总览」页面点击「刷新数据」，系统会同步拉取自选股当日行情用于筛选'
+              }
+            />
+          )}
+
+          {!alerts.empty && (
+            <Tabs
+              activeKey={activeTab}
+              onChange={(k) => setActiveTab(k as TabKey)}
+              items={triggeredTabItems}
+              size="small"
+              style={{ marginTop: 4 }}
+            />
+          )}
+        </div>
+      </Spin>
+
+      {/* ====================== 批量操作工具条 ====================== */}
+      {count > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 8,
+            padding: '8px 12px',
+            marginBottom: 12,
+            border: '1px dashed #d9d9d9',
+            borderRadius: 6,
+            background: '#fafafa',
+          }}
+        >
+          <Space size={8} wrap>
+            <Checkbox
+              checked={list.length > 0 && selectedRowKeys.length === list.length}
+              indeterminate={selectedRowKeys.length > 0 && selectedRowKeys.length < list.length}
+              onChange={(e) => {
+                if (e.target.checked) {
+                  setSelectedRowKeys(list.map((x) => x.id));
+                } else {
+                  setSelectedRowKeys([]);
+                }
+              }}
+            >
+              全选
+            </Checkbox>
+            <span style={{ color: '#8c8c8c', fontSize: 12 }}>
+              已选 <b>{selectedRowKeys.length}</b> / {count}
+            </span>
+            {selectedRowKeys.length > 0 && (
+              <Button
+                size="small"
+                onClick={() => setSelectedRowKeys([])}
+              >
+                清空
+              </Button>
+            )}
+          </Space>
+
+          <Space size={8} wrap>
+            <Button
+              size="small"
+              icon={<SettingTwoTone />}
+              disabled={selectedRowKeys.length === 0}
+              onClick={openBatchEdit}
+            >
+              批量设置阈值
+            </Button>
+            <Popconfirm
+              title={`确定将已选 ${selectedRowKeys.length} 只票的阈值重置为默认值？`}
+              description={`涨 ${DEFAULT_GAIN_PCT}% / 跌 ${DEFAULT_LOSS_PCT}% / 换手 ${DEFAULT_TURNOVER_PCT}%`}
+              okText="重置"
+              cancelText="取消"
+              disabled={selectedRowKeys.length === 0}
+              onConfirm={handleBatchResetDefault}
+            >
+              <Button
+                size="small"
+                icon={<ReloadOutlined />}
+                disabled={selectedRowKeys.length === 0}
+              >
+                批量重置默认值
+              </Button>
+            </Popconfirm>
+          </Space>
+        </div>
       )}
 
       {/* 表格 */}
@@ -432,13 +891,18 @@ function WatchlistPage() {
           rowKey="id"
           columns={columns}
           dataSource={list}
+          rowSelection={count > 0 ? rowSelection : undefined}
           locale={{ emptyText: '暂无自选股，点击右上角「添加自选股」开始管理' }}
           pagination={{
             pageSize: 50,
             showSizeChanger: false,
             hideOnSinglePage: true,
           }}
-          scroll={{ x: 820 }}
+          scroll={{ x: 1000 }}
+          rowClassName={rowClassName}
+          onRow={(record) => ({
+            style: rowBorderStyle(record),
+          })}
         />
       </Spin>
 
@@ -446,7 +910,8 @@ function WatchlistPage() {
       <div style={{ marginTop: 16, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <Tag color="red">涨幅阈值：当日涨幅 ≥ 该值即视为异动</Tag>
         <Tag color="green">跌幅阈值：当日跌幅绝对值 ≥ 该值即视为异动</Tag>
-        <Tag>换手率阈值：当日换手率 ≥ 该值即视为异动</Tag>
+        <Tag color="gold">换手率阈值：当日换手率 ≥ 该值即视为异动</Tag>
+        <Tag>行情来源：刷新总览数据时统一拉取并归档</Tag>
       </div>
 
       {/* ========== 新增弹窗 ========== */}
@@ -474,7 +939,6 @@ function WatchlistPage() {
           >
             <Input placeholder="如 600519 或 sh600519" maxLength={12} />
           </Form.Item>
-
           <Form.Item
             name="stock_name"
             label="股票名称"
@@ -483,7 +947,6 @@ function WatchlistPage() {
           >
             <Input placeholder="如 贵州茅台" maxLength={16} />
           </Form.Item>
-
           <div style={{
             border: '1px solid #f0f0f0',
             borderRadius: 6,
@@ -492,42 +955,24 @@ function WatchlistPage() {
             marginBottom: 8,
           }}>
             <div style={{ color: '#666', fontSize: 12, marginBottom: 12 }}>
-              阈值配置（不填则使用默认值：<b>涨 5% / 跌 5% / 换手 10%</b>）
+              阈值配置（不填则使用默认值：<b>涨 {DEFAULT_GAIN_PCT}% / 跌 {DEFAULT_LOSS_PCT}% / 换手 {DEFAULT_TURNOVER_PCT}%</b>）
             </div>
             <Space.Compact block style={{ gap: 8, flexWrap: 'wrap' }}>
               <Form.Item name="gain_pct" label="涨幅阈值 %" style={{ margin: 0, flex: 1, minWidth: 180 }}>
-                <InputNumber
-                  min={0.1}
-                  max={99}
-                  step={0.5}
-                  placeholder={`默认 ${DEFAULT_GAIN_PCT}`}
-                  style={{ width: '100%' }}
-                />
+                <InputNumber min={0.1} max={99} step={0.5} placeholder={`默认 ${DEFAULT_GAIN_PCT}`} style={{ width: '100%' }} />
               </Form.Item>
               <Form.Item name="loss_pct" label="跌幅阈值 %" style={{ margin: 0, flex: 1, minWidth: 180 }}>
-                <InputNumber
-                  min={0.1}
-                  max={99}
-                  step={0.5}
-                  placeholder={`默认 ${DEFAULT_LOSS_PCT}`}
-                  style={{ width: '100%' }}
-                />
+                <InputNumber min={0.1} max={99} step={0.5} placeholder={`默认 ${DEFAULT_LOSS_PCT}`} style={{ width: '100%' }} />
               </Form.Item>
               <Form.Item name="turnover_pct" label="换手率阈值 %" style={{ margin: 0, flex: 1, minWidth: 180 }}>
-                <InputNumber
-                  min={0.1}
-                  max={99}
-                  step={0.5}
-                  placeholder={`默认 ${DEFAULT_TURNOVER_PCT}`}
-                  style={{ width: '100%' }}
-                />
+                <InputNumber min={0.1} max={99} step={0.5} placeholder={`默认 ${DEFAULT_TURNOVER_PCT}`} style={{ width: '100%' }} />
               </Form.Item>
             </Space.Compact>
           </div>
         </Form>
       </Modal>
 
-      {/* ========== 编辑阈值弹窗 ========== */}
+      {/* ========== 编辑阈值弹窗（含一键重置默认） ========== */}
       <Modal
         title={editItem ? `编辑阈值 · ${editItem.stock_name}（${editItem.stock_code}）` : '编辑阈值'}
         open={!!editItem}
@@ -537,6 +982,24 @@ function WatchlistPage() {
         okText="保存"
         cancelText="取消"
         destroyOnClose
+        footer={(_, { OkBtn, CancelBtn }) => (
+          <>
+            <Popconfirm
+              title="确定重置为默认值？"
+              description={`涨 ${DEFAULT_GAIN_PCT}% / 跌 ${DEFAULT_LOSS_PCT}% / 换手 ${DEFAULT_TURNOVER_PCT}%`}
+              okText="重置"
+              cancelText="取消"
+              onConfirm={handleResetSingleDefault}
+            >
+              <Button icon={<ReloadOutlined />} loading={editSubmitting}>
+                一键重置默认值
+              </Button>
+            </Popconfirm>
+            <div style={{ flex: 1 }} />
+            <CancelBtn />
+            <OkBtn />
+          </>
+        )}
       >
         <Form<EditFormValues>
           form={editForm}
@@ -544,43 +1007,85 @@ function WatchlistPage() {
           preserve={false}
           style={{ marginTop: 8 }}
         >
-          <Form.Item
-            name="gain_pct"
-            label="涨幅阈值 %"
-            rules={[{ required: true, message: '请输入涨幅阈值' }]}
-          >
-            <InputNumber
-              min={0.1}
-              max={99}
-              step={0.5}
-              style={{ width: '100%' }}
-            />
+          <Form.Item name="gain_pct" label="涨幅阈值 %" rules={[{ required: true, message: '请输入涨幅阈值' }]}>
+            <InputNumber min={0.1} max={99} step={0.5} style={{ width: '100%' }} />
           </Form.Item>
-          <Form.Item
-            name="loss_pct"
-            label="跌幅阈值 %（绝对值）"
-            rules={[{ required: true, message: '请输入跌幅阈值' }]}
-          >
-            <InputNumber
-              min={0.1}
-              max={99}
-              step={0.5}
-              style={{ width: '100%' }}
-            />
+          <Form.Item name="loss_pct" label="跌幅阈值 %（绝对值）" rules={[{ required: true, message: '请输入跌幅阈值' }]}>
+            <InputNumber min={0.1} max={99} step={0.5} style={{ width: '100%' }} />
           </Form.Item>
-          <Form.Item
-            name="turnover_pct"
-            label="换手率阈值 %"
-            rules={[{ required: true, message: '请输入换手率阈值' }]}
-          >
-            <InputNumber
-              min={0.1}
-              max={99}
-              step={0.5}
-              style={{ width: '100%' }}
-            />
+          <Form.Item name="turnover_pct" label="换手率阈值 %" rules={[{ required: true, message: '请输入换手率阈值' }]}>
+            <InputNumber min={0.1} max={99} step={0.5} style={{ width: '100%' }} />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* ========== 批量设置阈值弹窗 ========== */}
+      <Modal
+        title={`批量设置阈值（已选 ${selectedRowKeys.length} 只）`}
+        open={batchEditOpen}
+        onCancel={() => setBatchEditOpen(false)}
+        onOk={handleBatchEditOk}
+        confirmLoading={batchEditSubmitting}
+        okText="批量修改"
+        cancelText="取消"
+        destroyOnClose
+        footer={(_, { OkBtn, CancelBtn }) => (
+          <>
+            <Popconfirm
+              title={`确定将已选 ${selectedRowKeys.length} 只票全部重置为默认值？`}
+              description={`涨 ${DEFAULT_GAIN_PCT}% / 跌 ${DEFAULT_LOSS_PCT}% / 换手 ${DEFAULT_TURNOVER_PCT}%`}
+              okText="全部重置"
+              cancelText="取消"
+              onConfirm={async () => {
+                await handleBatchResetDefault();
+              }}
+            >
+              <Button icon={<ReloadOutlined />} loading={batchEditSubmitting}>
+                全部重置为默认值
+              </Button>
+            </Popconfirm>
+            <div style={{ flex: 1 }} />
+            <CancelBtn />
+            <OkBtn />
+          </>
+        )}
+      >
+        <div style={{
+          border: '1px solid #f0f0f0',
+          borderRadius: 6,
+          padding: '12px 16px',
+          background: '#fafafa',
+          marginTop: 4,
+          marginBottom: 8,
+        }}>
+          <div style={{ color: '#666', fontSize: 12, marginBottom: 12 }}>
+            已选 <b>{selectedRowKeys.length}</b> 只票 · 只填需要改的阈值（未填的字段保持不变）
+          </div>
+          <Form<BatchEditFormValues>
+            form={batchEditForm}
+            layout="vertical"
+            preserve={false}
+          >
+            <Space.Compact block style={{ gap: 8, flexWrap: 'wrap' }}>
+              <Form.Item name="gain_pct" label="涨幅阈值 %" style={{ margin: 0, flex: 1, minWidth: 180 }}>
+                <InputNumber min={0.1} max={99} step={0.5} placeholder="不填则不改" style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item name="loss_pct" label="跌幅阈值 %" style={{ margin: 0, flex: 1, minWidth: 180 }}>
+                <InputNumber min={0.1} max={99} step={0.5} placeholder="不填则不改" style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item name="turnover_pct" label="换手率阈值 %" style={{ margin: 0, flex: 1, minWidth: 180 }}>
+                <InputNumber min={0.1} max={99} step={0.5} placeholder="不填则不改" style={{ width: '100%' }} />
+              </Form.Item>
+            </Space.Compact>
+          </Form>
+        </div>
+        <Divider style={{ margin: '8px 0 12px' }} />
+        <Alert
+          type="info"
+          showIcon
+          message="提示"
+          description={`默认值 = 涨 ${DEFAULT_GAIN_PCT}% / 跌 ${DEFAULT_LOSS_PCT}% / 换手 ${DEFAULT_TURNOVER_PCT}%，可点左下角「全部重置为默认值」一键应用。`}
+        />
       </Modal>
     </div>
   );

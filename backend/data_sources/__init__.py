@@ -6,6 +6,7 @@ from .indices import fetch as fetch_indices
 from .limit_pool import fetch as fetch_limit_pool
 from .money_flow import fetch as fetch_money_flow
 from .sector_breadth import fetch as fetch_sector_breadth
+from .watchlist_quotes import fetch as fetch_watchlist_quotes
 
 # 模块名 -> fetch 函数的映射（供 main.py 调度）
 FETCHERS = {
@@ -13,6 +14,7 @@ FETCHERS = {
     "limit_pool": fetch_limit_pool,
     "money_flow": fetch_money_flow,
     "sector_breadth": fetch_sector_breadth,
+    "watchlist_quotes": fetch_watchlist_quotes,
 }
 
 __all__ = [
@@ -21,4 +23,5 @@ __all__ = [
     "fetch_limit_pool",
     "fetch_money_flow",
     "fetch_sector_breadth",
+    "fetch_watchlist_quotes",
 ]

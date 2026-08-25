@@ -2,12 +2,25 @@
 
 使用 Python 标准库 sqlite3，无需额外依赖。
 表结构按决策3实现：snapshots 表按模块分条存储 + config 表存配置。
+
+支持环境变量覆盖：`STOCK_DB_PATH=/path/to/test.db`（用于单元测试指向临时库）；
+若环境变量未设置，则回退到 `config.DB_PATH` 默认位置（正式环境行为不变）。
 """
+import os
 import sqlite3
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Iterator
 
-from config import DB_PATH
+from config import DB_PATH as _DEFAULT_DB_PATH
+
+
+def _resolve_db_path() -> Path:
+    """优先使用环境变量 STOCK_DB_PATH（测试/开发临时覆盖），否则走 config 默认路径。"""
+    env = os.environ.get("STOCK_DB_PATH")
+    if env:
+        return Path(env)
+    return _DEFAULT_DB_PATH
 
 
 def get_connection() -> sqlite3.Connection:
@@ -16,9 +29,10 @@ def get_connection() -> sqlite3.Connection:
     每次调用返回新连接，调用方负责关闭（用 with 语法）。
     row_factory 设置为 Row，支持按列名访问。
     """
+    db_path = _resolve_db_path()
     # 确保数据目录存在
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH))
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
     # 开启外键约束
     conn.execute("PRAGMA foreign_keys = ON")

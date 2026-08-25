@@ -16,7 +16,7 @@ import logging
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import AsyncGenerator, AsyncIterator
+from typing import AsyncGenerator, AsyncIterator, Dict, List
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -34,7 +34,13 @@ from snapshot import (
     save_snapshot,
 )
 import watchlist as watchlist_svc
-from config import WATCHLIST_MAX_SIZE
+from config import (
+    WATCHLIST_MAX_SIZE,
+    MODULE_WATCHLIST_QUOTES,
+    WATCHLIST_DEFAULT_GAIN_PCT,
+    WATCHLIST_DEFAULT_LOSS_PCT,
+    WATCHLIST_DEFAULT_TURNOVER_PCT,
+)
 
 # ========== 日志配置 ==========
 logging.basicConfig(
@@ -203,7 +209,13 @@ async def refresh_data() -> EventSourceResponse:
             }, ensure_ascii=False),
         }
 
-    return EventSourceResponse(event_generator())
+    return EventSourceResponse(
+        event_generator(),
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # ========== 快照接口 ==========
@@ -349,6 +361,60 @@ def api_delete_watch_item(item_id: int) -> dict:
     return {"deleted": deleted}
 
 
+# ========== 批量阈值修改（阶段 2.2 批量设置功能）==========
+# 注意：批量路由必须注册在 /{item_id} 之前，否则 FastAPI 会把 "batch-thresholds"
+# 当成 item_id 字符串，导致 422 int_parsing 错误。
+
+class WatchlistBatchUpdateRequest(BaseModel):
+    """批量设置阈值请求体（支持部分字段）。"""
+    ids: List[int] = Field(..., min_length=1, description="要更新的自选股 id 列表")
+    gain_pct: float | None = Field(None, gt=0, lt=100, description="涨幅阈值%，None=不改")
+    loss_pct: float | None = Field(None, gt=0, lt=100, description="跌幅阈值%，None=不改")
+    turnover_pct: float | None = Field(None, gt=0, lt=100, description="换手率阈值%，None=不改")
+    reset_to_default: bool = Field(False, description="True 时忽略 3 个阈值字段，全部重置为 config 默认值")
+
+
+class WatchlistBatchUpdateResponse(BaseModel):
+    updated: int
+    failed_ids: List[int] = []
+
+
+@app.patch("/api/watchlist/batch-thresholds", response_model=WatchlistBatchUpdateResponse)
+def api_batch_update_thresholds(req: WatchlistBatchUpdateRequest) -> dict:
+    """批量修改多只自选股的阈值。
+
+    两种模式（互斥）：
+      - reset_to_default=True：忽略 3 个阈值字段，统一重置为 config 默认值（5/5/10）
+      - reset_to_default=False：按传入的 gain_pct / loss_pct / turnover_pct 更新（只传需要改的）
+
+    Returns:
+        {"updated": N, "failed_ids": [id1, id2, ...]}
+    """
+    updated = 0
+    failed_ids: List[int] = []
+
+    gain = req.gain_pct
+    loss = req.loss_pct
+    turnover = req.turnover_pct
+    if req.reset_to_default:
+        gain = WATCHLIST_DEFAULT_GAIN_PCT
+        loss = WATCHLIST_DEFAULT_LOSS_PCT
+        turnover = WATCHLIST_DEFAULT_TURNOVER_PCT
+
+    for iid in req.ids:
+        try:
+            watchlist_svc.update_thresholds(
+                item_id=iid,
+                gain_pct=gain,
+                loss_pct=loss,
+                turnover_pct=turnover,
+            )
+            updated += 1
+        except ValueError:
+            failed_ids.append(iid)
+    return {"updated": updated, "failed_ids": failed_ids}
+
+
 @app.patch("/api/watchlist/{item_id}")
 def api_update_watch_thresholds(item_id: int, req: WatchItemUpdateRequest) -> dict:
     """修改指定自选股的阈值。
@@ -366,6 +432,210 @@ def api_update_watch_thresholds(item_id: int, req: WatchItemUpdateRequest) -> di
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     return item.to_dict()
+
+
+# ========== 自选股异动筛选接口（阶段 2.3）==========
+
+def _normalize_code_6(raw: str) -> str:
+    """把 sh600519 / sz000001 / 600519 一律规范成 6 位数字字符串。"""
+    if not raw:
+        return ""
+    s = str(raw).strip().lower()
+    for prefix in ("sh", "sz", "bj"):
+        if s.startswith(prefix):
+            s = s[len(prefix):]
+            break
+    digits = "".join(ch for ch in s if ch.isdigit())
+    return digits.zfill(6) if digits else ""
+
+
+@app.get("/api/watchlist/alerts")
+def api_watchlist_alerts(trade_date: str | None = None) -> dict:
+    """按自选股阈值计算当日异动触发票。
+
+    数据来源：当日快照的 `watchlist_quotes` 模块（刷新时统一存档，避免此接口再次调 akshare）。
+
+    Args:
+        trade_date: 可选 YYYY-MM-DD；不传则取最新快照
+
+    Returns:
+        {
+            "trade_date": "...",
+            "watch_count": 12,            # 自选股总数
+            "quote_count": 10,            # 有行情数据的数量
+            "total_triggered": 3,         # 触发任意阈值的数量
+            "groups": {
+                "gain":     {"count": 1, "items": [AlertItem, ...]},
+                "loss":     {"count": 1, "items": [AlertItem, ...]},
+                "turnover": {"count": 1, "items": [AlertItem, ...]},
+            },
+            "items": [AlertItem, ...],    # 全部自选股（含触发状态，便于前端自选股页渲染）
+            "empty": false,               # true 当 watchlist 为空 或 无 watchlist_quotes 存档
+        }
+    """
+    # 1. 拿快照（含 watchlist_quotes 模块）
+    if trade_date:
+        snap = get_snapshot_by_date(trade_date)
+    else:
+        snap = get_latest_snapshot()
+
+    # 2. 拿 watchlist
+    watch_items = watchlist_svc.list_watchlist()
+    watch_count = len(watch_items)
+
+    # 3. 任一为空 → 返回 empty
+    if snap is None or watch_count == 0:
+        return {
+            "trade_date": snap["trade_date"] if snap else (trade_date or ""),
+            "watch_count": watch_count,
+            "quote_count": 0,
+            "total_triggered": 0,
+            "groups": {
+                "gain": {"count": 0, "items": []},
+                "loss": {"count": 0, "items": []},
+                "turnover": {"count": 0, "items": []},
+            },
+            "items": [],
+            "empty": True,
+        }
+
+    modules = snap.get("modules", {}) or {}
+    wl_module_in_snap = MODULE_WATCHLIST_QUOTES in modules
+    wq_module = modules.get(MODULE_WATCHLIST_QUOTES) or {}
+
+    # 失败检测（军规：失败即空）
+    # 来源1：模块返回本身包含 error 字段（数据源层直接失败）
+    module_error = wq_module.get("error") if isinstance(wq_module, dict) else None
+    # 来源2：决策3的 snapshots 表 status=failed → error 存在于 snap["failed_modules"] 列表中
+    if module_error is None:
+        failed_list = snap.get("failed_modules") or []
+        for fm in failed_list:
+            if fm.get("module") == MODULE_WATCHLIST_QUOTES:
+                module_error = fm.get("error") or "自选股行情模块拉取失败（快照标记为 failed）"
+                break
+    # 来源3：模块本身不存在（刷新时未运行此模块）或模块 dict 为空 → 视为"未归档"，返回 empty
+    if module_error is None and not wl_module_in_snap:
+        module_error = f"快照日期 {snap['trade_date']} 未包含自选股行情模块（watchlist_quotes 尚未归档），请先刷新数据。"
+    elif module_error is None and isinstance(wq_module, dict) and len(wq_module) == 0:
+        module_error = f"快照日期 {snap['trade_date']} 自选股行情模块为空（无行情数据），请稍后重试或刷新。"
+
+    # 如果 watchlist_quotes 模块失败或未归档 → empty（军规：绝不造数据）
+    if module_error:
+        return {
+            "trade_date": snap["trade_date"],
+            "watch_count": watch_count,
+            "quote_count": 0,
+            "total_triggered": 0,
+            "groups": {
+                "gain": {"count": 0, "items": []},
+                "loss": {"count": 0, "items": []},
+                "turnover": {"count": 0, "items": []},
+            },
+            "items": [],
+            "empty": True,
+            "error": module_error,
+        }
+
+    quotes: list = wq_module.get("quotes", []) or []
+    # 兼容旧格式/其他模块用 items 作为字段名
+    if not quotes:
+        quotes = wq_module.get("items", []) or []
+    trade_date_out = snap["trade_date"]
+
+    # 自选股 > 0，但 quotes 全空 → 仍然按 empty（没行情就没阈值判断依据）
+    if watch_count > 0 and len(quotes) == 0:
+        return {
+            "trade_date": trade_date_out,
+            "watch_count": watch_count,
+            "quote_count": 0,
+            "total_triggered": 0,
+            "groups": {
+                "gain": {"count": 0, "items": []},
+                "loss": {"count": 0, "items": []},
+                "turnover": {"count": 0, "items": []},
+            },
+            "items": [],
+            "empty": True,
+            "error": f"快照日期 {trade_date_out} 自选股行情模块未返回任何报价（watchlist {watch_count} 只全部缺行情）。",
+        }
+
+    # 建立 规范 code → quote 映射
+    code_to_quote: Dict[str, dict] = {}
+    for q in quotes:
+        nc = _normalize_code_6(q.get("code", ""))
+        if nc:
+            code_to_quote[nc] = q
+    quote_count = len(code_to_quote)
+
+    # 4. 合并 watchlist + quote，计算触发
+    all_items: list = []
+    gain_group: list = []
+    loss_group: list = []
+    turnover_group: list = []
+    total_triggered = 0
+
+    for wi in watch_items:
+        nc = _normalize_code_6(wi.stock_code)
+        q = code_to_quote.get(nc, {})
+
+        pct_chg = q.get("pct_chg")           # None / float
+        turnover_rate = q.get("turnover_rate")  # None / float
+        price = q.get("price")
+
+        # 触发判断（None 视为未达阈值，不误触发）
+        gain_triggered = (
+            pct_chg is not None and pct_chg >= wi.gain_pct
+        )
+        loss_triggered = (
+            pct_chg is not None and pct_chg <= (-1.0 * abs(wi.loss_pct))
+        )
+        turnover_triggered = (
+            turnover_rate is not None and turnover_rate >= wi.turnover_pct
+        )
+        any_triggered = gain_triggered or loss_triggered or turnover_triggered
+        if any_triggered:
+            total_triggered += 1
+
+        item = {
+            "id": wi.id,
+            "code": wi.stock_code,
+            "code_norm": nc,
+            "name": q.get("name") or wi.stock_name,
+            "price": price,
+            "pct_chg": pct_chg,
+            "turnover_rate": turnover_rate,
+            "gain_pct_threshold": wi.gain_pct,
+            "loss_pct_threshold": wi.loss_pct,
+            "turnover_pct_threshold": wi.turnover_pct,
+            "gain_triggered": gain_triggered,
+            "loss_triggered": loss_triggered,
+            "turnover_triggered": turnover_triggered,
+            "any_triggered": any_triggered,
+        }
+        all_items.append(item)
+        if gain_triggered:
+            gain_group.append(item)
+        if loss_triggered:
+            loss_group.append(item)
+        if turnover_triggered:
+            turnover_group.append(item)
+
+    # 5. any_triggered 排序：触发的放最前
+    all_items.sort(key=lambda x: (0 if x["any_triggered"] else 1, -x["id"]))
+
+    return {
+        "trade_date": trade_date_out,
+        "watch_count": watch_count,
+        "quote_count": quote_count,
+        "total_triggered": total_triggered,
+        "groups": {
+            "gain": {"count": len(gain_group), "items": gain_group},
+            "loss": {"count": len(loss_group), "items": loss_group},
+            "turnover": {"count": len(turnover_group), "items": turnover_group},
+        },
+        "items": all_items,
+        "empty": False,
+    }
 
 
 # ========== 入口 ==========

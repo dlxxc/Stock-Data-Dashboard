@@ -9,10 +9,17 @@ export const MODULE_LABELS: Record<string, string> = {
   limit_pool: '涨跌停池',
   money_flow: '行业资金流',
   sector_breadth: '板块涨跌广度',
+  watchlist_quotes: '自选股行情',
 };
 
 /** 模块展示顺序（与后端 ALL_MODULES 一致） */
-export const MODULE_ORDER = ['indices', 'limit_pool', 'money_flow', 'sector_breadth'];
+export const MODULE_ORDER = [
+  'limit_pool',
+  'money_flow',
+  'sector_breadth',
+  'watchlist_quotes',
+  'indices',
+];
 
 /** 取模块中文名，未知模块回退原 key */
 export function getModuleLabel(name: string): string {

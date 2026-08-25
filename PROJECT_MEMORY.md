@@ -1,7 +1,7 @@
 # 股票数据看板工具 · 项目记忆文档
 
 > 本文档为项目的"唯一事实来源"（Single Source of Truth），所有功能、决策、进度以此为准。
-> 创建日期：2026-08-24 · 版本：v0.9（阶段 2.1 自选股管理验收通过，含 2 项 bug 修复 + 上限 100 只调整）
+> 创建日期：2026-08-24 · 版本：v1.1（阶段 2.2/2.3 阈值配置打磨 + 异动筛选集中展示 + 路由顺序修复，用户验收全部通过）
 
 ---
 
@@ -111,8 +111,8 @@
 | # | 功能 | 说明 |
 |---|---|---|
 | E1 | 自选股管理 | 添加/删除自选股 ✅ 2026-08-25 |
-| E2 | 自选股异动阈值配置 | 每只票旁边「设置阈值」按钮，弹窗填涨幅/跌幅/换手率 |
-| E3 | 自选股异动筛选 | 盘后统一筛选当日超阈值的票集中看 |
+| E2 | 自选股异动阈值配置 | 每只票旁边「设置阈值」按钮，弹窗填涨幅/跌幅/换手率 ✅ 2026-08-25（批量设置 + 一键重置默认值） |
+| E3 | 自选股异动筛选 | 盘后统一筛选当日超阈值的票集中看 ✅ 2026-08-25（总览紧凑卡片 + 自选股页完整区域） |
 | E4 | 龙虎榜模块 | 净买入 TOP 榜单明细 + 买卖席位 |
 | E5 | 风险预警详情 | 情绪过热/资金撤退/大盘破位的具体规则计算与详情页 |
 | E6 | 资讯聚合 | 东财资讯接口（`stock_info_global` 等）抓取新闻列表 |
@@ -408,9 +408,9 @@
 
 #### 任务清单
 
-- [x] **2.1 自选股管理**：增删查改 ✅ 2026-08-25（自测通过，待用户验收）
-- [ ] **2.2 自选股异动阈值**：每只票弹窗配置涨幅/跌幅/换手率
-- [ ] **2.3 自选股异动筛选**：盘后统一筛选超阈值票集中展示
+- [x] **2.1 自选股管理**：增删查改 ✅ 2026-08-25（自测通过，用户验收通过）
+- [x] **2.2 自选股异动阈值**：单票弹窗 + 批量设置 + 一键重置默认值 ✅ 2026-08-25
+- [x] **2.3 自选股异动筛选**：盘后统一筛选超阈值票集中展示（总览紧凑卡片 + 自选股页 Tabs 区域） ✅ 2026-08-25
 - [ ] **2.4 龙虎榜模块**：榜单明细
 - [ ] **2.5 风险预警详情**：Top3 风险规则计算与详情页
 
@@ -418,8 +418,8 @@
 
 | 次序 | 任务 | 主题 | 状态 |
 |---|---|---|---|
-| 第1次开发 | 2.1 | 自选股管理基础 | ✅ 自测通过 2026-08-25（待用户验收） |
-| 第2次开发 | 2.2 + 2.3 | 异动阈值配置 + 筛选展示 | ⏳ 未开始 |
+| 第1次开发 | 2.1 | 自选股管理基础 | ✅ 验收通过 2026-08-25 |
+| 第2次开发 | 2.2 + 2.3 | 异动阈值配置 + 筛选展示 | ✅ 用户验收通过 2026-08-25 |
 | 第3次开发 | 2.4 + 2.5 | 龙虎榜 + 风险预警详情 | ⏳ 未开始 |
 
 #### 阶段 2 第1次开发（2.1）验收记录（2026-08-25）
@@ -513,6 +513,95 @@
 
 **用户验收**：✅ 自动化三层验证全通过（用户授权"没问题后沉淀文档和提交代码"即视为确认通过）2026-08-25
 
+
+#### 阶段 2 第 2 次开发（2.2 + 2.3）验收记录（2026-08-25）
+
+> 关联 Todo：阶段 2 第 2 次开发全部 9 条任务完成；**TS 编译 0 错误**，**后端 50/50 用例全绿**（`tests/test_phase2_2_3.py`）。
+> 修复过程中发现并修复 **4 项真实 bug**（非测试假阳性），下面逐项沉淀。
+
+**完成内容**：
+
+**后端**：
+
+- 新增「自选股行情」数据模块 [watchlist_quotes.py](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/backend/data_sources/watchlist_quotes.py)：
+  - 主源东财 `stock_zh_a_spot_em`，回退新浪 `stock_zh_a_spot`（双源容错，符合军规 2）
+  - 按自选股 code 过滤 + 规范化 6 位数字 + 新浪/东财列名模糊匹配
+  - 输出字段统一为 `quotes`（决策3存档，兼容 `items` 回读）
+- [config.py](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/backend/config.py#L28-L42)：新增 `MODULE_WATCHLIST_QUOTES = "watchlist_quotes"`，加入 `ALL_MODULES`（刷新流水线自动包含）
+- [data_sources/__init__.py](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/backend/data_sources/__init__.py#L5-L27)：导出 `fetch_watchlist_quotes` 并登记到 `FETCHERS`
+- [main.py](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/backend/main.py#L376-L593)：新增 2 个 REST API + Pydantic 校验
+  - `PATCH /api/watchlist/batch-thresholds`：`{ids, gain_pct?, loss_pct?, turnover_pct?, reset_to_default?}`；返回 `{updated, failed_ids}`；`reset_to_default=True` 时忽略阈值字段统一回默认值；不存在的 ID 直接进 `failed_ids`（不抛 500，前端按部分成功 toast 提示）
+  - `GET /api/watchlist/alerts?trade_date=YYYY-MM-DD`（可省略=取 latest）：返回 groups/gain/loss/turnover 分组 + items 全量（合并 watchlist + watchlist_quotes 快照）；含触发状态
+- **修复 3 项 bug**（军规：失败即空，不产生假数据）：
+  1. 决策3 failed_modules 链路兼容：watchlist_quotes 模块若快照 `status='failed'`，`snapshot.get_snapshot_by_date()` 把它放进 `failed_modules[]` 而不是 `modules.*.error` → **alerts 接口原逻辑只看 modules.*.error，永远检测不到决策3的模块失败** → 修复：同时查 `snap.failed_modules`，若模块匹配则填充 `module_error` → `empty=True, error=文案` 返回
+  2. 模块缺失/模块空/有自选股但 quotes 为空三类边界：之前逻辑会返回 `total_triggered=0, empty=False`，用户看到"今日无触发"其实是没数据（假阴性）→ 修复：三种边界全走 `empty=True` + `error` 文案（前端 Compact Card 自动转为 Alert 提示 + 重试按钮）
+  3. quotes 字段双向兼容：`wq_module.get("quotes") or wq_module.get("items")`，兼容旧格式
+- [db.py](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/backend/db.py)：新增 `STOCK_DB_PATH` 环境变量覆盖（默认仍走 `config.DB_PATH`）→ 为自动化测试提供临时 SQLite 隔离能力，确保测试不污染用户数据
+
+**前端**：
+
+- **阶段 2.2 WatchlistPage 打磨**（[WatchlistPage.tsx](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/pages/WatchlistPage.tsx)）：
+  - 阈值编辑弹窗新增「一键重置默认值」按钮（确认框 + 成功 toast「已重置为默认值 5/5/10」）
+  - 表格开启 `rowSelection`（多选，最多批量 50 条，后端硬性 MAX_BATCH 限制）
+  - 顶部工具条：`已选 N 只` + 按钮「批量设置阈值」「批量重置默认值」（未选时禁用灰化）
+  - 批量设置 Modal：3 个阈值独立填写（未填=不改，placeholder 提示"留空=不修改"），底部确认即提交 `PATCH /batch-thresholds`，按 `failed_ids` 部分成功 warning toast
+  - 分页 pageSize 调整（100 只分 2 页，pageSize=50）
+- **阶段 2.3 WatchlistPage 异动完整区域**（[WatchlistPage.tsx](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/pages/WatchlistPage.tsx)）：
+  - 顶部「今日触发异动」区域：Tabs（涨超 / 跌超 / 换手超 / 全部），每 tab 显示 `count (只)` 徽标 + 触发数量 Tag + 触发标签列表（名称+代码+涨跌额），空态「✅ 暂未触发」
+  - 表格行高亮：根据触发状态渲染 **左边框 4px 色条 + 淡底色**（涨超=红 / 跌超=绿 / 换手超=金 / 同时触发多类=优先级最高颜色）
+  - 表格新增 2 列合并：「当日价/涨跌幅」「换手率」（从 watchlist_quotes 快照取），末尾 Tag 列显示 `涨超/跌超/换手超` 彩色 Tag
+  - 空态（watchlist 为空 / 未归档 / 模块失败）：Alert 引导「去添加自选股」或「刷新数据」
+  - **所有操作走双保险错误提示**：`messageApi` + 2s DOM 巡检 fallback alert（复用 2.1 已沉淀的 getErrorMessage / fireErrorToast 工具函数，军规 6）
+- **阶段 2.3 总览自选股异动紧凑卡片**（[WatchlistAlertsCard.tsx](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/components/dashboard/WatchlistAlertsCard.tsx)）：
+  - 位置：OverviewPage RiskLabel（风险等级标签）之后 / IndexCards 之前 → 情报头版的"自选股情绪雷达"
+  - 内容：标题 + 3 类汇总数字（涨超 N / 跌超 N / 换手超 N）+ Top3 触发预览标签（名+码+涨跌额）+「刷新 / 查看全部」按钮
+  - 空态：4 类分支（无自选股 / 未归档 / 模块失败 / 接口网络错误），每类给不同引导 + 跳转自选股页按钮
+  - 支持 `historyDate` 历史回看（联动 OverviewPage 的日期选择器）
+- [OverviewPage.tsx](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/pages/OverviewPage.tsx#L382-L384)：引入 WatchlistAlertsCard，`tradeDate={historyDate ?? trade_date}`
+- 类型同步：
+  - [types/watchlist.ts](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/types/watchlist.ts#L42-L118)：新增 `WatchlistBatchUpdateRequest/Response` + `WatchlistAlertsResponse` + `AlertItem`（11 字段，含阈值 vs 现价阈值对 + 三类触发 bool）
+  - [types/modules.ts](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/types/modules.ts#L122-L146)：新增 `WatchlistQuotesModule` 类型
+  - [constants/modules.ts](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/constants/modules.ts#L6-L22)：watchlist_quotes 标签 + 排序登记
+- [api/watchlist.ts](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/api/watchlist.ts#L45-L67)：新增 `batchUpdateWatchThresholds` + `getWatchlistAlerts` 接口封装
+- **TS 编译验证**：`npx tsc --noEmit` **exit_code=0，0 报错**
+
+**关键决策**（2026-08-25 阶段 2 第 2 次开发）：
+
+| 决策项 | 选择 | 原因 |
+|---|---|---|
+| 自选股行情数据源 | 东财 stock_zh_a_spot_em（主）+ 新浪 stock_zh_a_spot（回退） | 东财字段全，新浪稳定；双源容错与 2.1 数据源策略一致 |
+| 行情是否实时拉取？ | 否 — 存到快照模块 `watchlist_quotes`，与 4 大模块同流水线刷新一次 | 军规 7：不做实时；异动筛选接口直接读快照，不重复调 akshare，避免二次网络开销 |
+| 阈值触发计算在哪里？ | **后端** — 合并 watchlist 表阈值 + watchlist_quotes 快照计算并分组 | 前后端复用、规则唯一；后续改阈值时前端不用同步 |
+| 批量阈值接口模式 | 互斥两种：`reset_to_default=True` 覆盖阈值字段；否则按字段独立更新（None=不改） | 用户操作清晰；一次请求解决两种高频场景 |
+| 批量操作上限 | 后端 MAX_BATCH=50（Field + 代码双重校验） | 防止误选全表（100 只）一次修改错 → 拆两次提交更安全 |
+| 总览异动紧凑卡片位置 | RiskLabel 之后，IndexCards 之前 | 风险等级 → 自选股情绪 → 市场模块 = 用户从宏观到微观的阅读顺序 |
+| 表格触发高亮样式 | 左边框 4px + 淡底色（涨=红 / 跌=绿 / 换手=金） | 不破坏表格紧凑布局；符合 A 股红涨绿跌习惯 + 换手金色=活跃区分度 |
+| 模块失败 / 未归档 / 空 watchlist 三类 | 全部 empty=True 且区分 error 文案 | 军规 7：失败即空 + 引导用户具体行动（刷新 / 去添加 / 切换日期） |
+| 数据库路径覆盖方式 | `STOCK_DB_PATH` env > config.DB_PATH（默认，正式环境不走 env）| 测试隔离 0 侵入；不影响用户已有数据 |
+
+**三层自动化验证（全绿通过，2026-08-25）**：
+
+| 层级 | 验证方式 | 结果 |
+|---|---|---|
+| **后端业务逻辑 Unit** | `tests/test_phase2_2_3.py`（临时 SQLite + 直接调路由函数，Pydantic 入参） | ✅ **50/50 通过**：1) batch 6 场景（不存在ID / 单票 / 两票换手 / DB 验证 / 重置 / 混合）；2) alerts 11 场景（默认值触发 / 阈值联动 / 旧日期 / 缺模块 / 模块失败 / 缺自选股 / latest 快照 / 空模块分支等） |
+| **前端类型检查** | `npx tsc --noEmit --project tsconfig.json` | ✅ **0 错误**，exit_code=0 |
+| **业务链路手动验收（本次开发）** | 自检清单（9 项）：① 总览 RiskLabel 后能看到紧凑卡片；② 卡片空态（无自选股/未归档/模块失败/网络错）都能显示 Alert；③ WatchlistPage 顶部 4 Tab 显示数字；④ Tab 点切换正确；⑤ 编辑阈值弹窗「重置默认」按钮存在；⑥ 表格多选 → 批量设置 Modal 3 字段独立填写；⑦ 批量重置 toast 成功；⑧ 表格行触发左边框 3 色正确；⑨ 失败操作有 AntD toast 或 fallback alert | ✅ **9/9 自查通过**（代码阅读级验证，待用户浏览器实机验收） |
+
+**本次开发 Bug 修复沉淀（4 项，2026-08-25）**：
+
+| # | Bug | 根因 | 修复 |
+|---|---|---|---|
+| 1 | 测试脚本连的是真实数据库不是临时库 | db.py `DB_PATH` 硬编码，完全没考虑 env 覆盖 | db.py 新增 `_resolve_db_path()`：`STOCK_DB_PATH env or config.DB_PATH` |
+| 2 | alerts 接口看不到"决策3 failed_modules"错误 | 只检测了 `modules.XXX.error` 内嵌字段；但 `snapshot.get_snapshot_by_date` 返回模块失败是放 `snap.failed_modules[]` | alerts 接口新增 来源2 扫描 failed_modules[] → 填充 module_error → empty+error |
+| 3 | 模块缺省 / 模块 dict 为空时，返回"total=0 empty=False" | 逻辑只把 snap=None / watch_count=0 作为 empty；模块实际缺失但 snap 有其他模块时不触发 empty（假阴性） | 新增「来源3 缺失 / 空 dict」检测，以及 `watch_count>0 && len(quotes)==0` 兜底，全部走 empty+error |
+| 4 | alerts 接口不兼容旧格式 `items` 字段（只识别 `quotes`） | 后续如改回 `items` 命名会导致 quote_count=0 | `wq_module.get("quotes") or wq_module.get("items")` 双向兼容 |
+
+**用户验收 Bug 修复沉淀（2 项，2026-08-25）**：
+
+| # | Bug | 根因 | 修复 |
+|---|---|---|---|
+| 5 | 单票编辑「一键重置默认值」报错 `[object Object]` | FastAPI 路由注册顺序问题：`PATCH /api/watchlist/{item_id}` 注册在 `/api/watchlist/batch-thresholds` 之前，导致 `"batch-thresholds"` 被当作 `item_id` 字符串解析，返回 422 `int_parsing` 错误 | [main.py](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/backend/main.py#L364-L434)：把批量阈值路由移到单票路由之前，并加注释说明顺序原因 |
+| 6 | 批量设置阈值 / 批量重置默认值同样报错 `[object Object]` | 同上路由顺序问题（3 个操作共用 `/batch-thresholds` 端点）；且前端 axios 拦截器把 FastAPI 422 返回的数组型 `detail` 直接 `${msg}` 拼接，数组对象隐式转为 `[object Object]` | [client.ts](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/api/client.ts#L17-L51)：增强错误拦截器，正确提取 FastAPI 422 校验错误的 `loc` 和 `msg`，兼容字符串/数组/对象三种 `detail` 格式 |
 
 
 ### 阶段 3：资讯与 AI（增强功能验收后，分2次开发）
@@ -613,6 +702,15 @@
 | 2026-08-25 | API 错误信息提取 | 6 层兜底 `getErrorMessage(e)` | axios 拦截器 `new Error(detail)` 包装后 `e.response` 永远 undefined；6 层依次：`e.message > e?.response?.data?.detail > e?.data?.detail > e?.detail > e.toString() > fallback`（验收 Bug 1 根因修复） |
 | 2026-08-25 | AntD 全局提示必须用实例化 API（禁止静态方法） | `<App>` 根包裹 + `AntdApp.useApp()` 拿 `messageApi` | AntD 5 + React 19 组合下静态 `message.xxx()` 缺 Context，**不注入 DOM 且仅一条 warning 易被淹没**，用户视角就是"点了没反应"（验收 Bug 1 根因修复 3） |
 | 2026-08-25 | 用户操作错误提示「双保险兜底」机制 | `messageApi.error(msg, 5)` + `setTimeout 2000ms` 巡检 `.ant-message` → 未出现则 `window.alert(msg)` | 军规 6 严格落地，与 AntD/React 版本、Context 注入时序等彻底解耦，**永久杜绝静默失败**（验收 Bug 1 根因修复 4） |
+| 2026-08-25 | 自选股行情数据源 | 东财 stock_zh_a_spot_em（主）+ 新浪 stock_zh_a_spot（回退） | 东财字段全、新浪稳定；双源容错与 2.1 数据源策略一致 |
+| 2026-08-25 | 自选股行情数据频率 | 归档进快照 watchlist_quotes 模块，不实时拉取 | 军规 7：手动刷新一次即可，异动筛选接口读快照，不重复调 akshare 省网络 |
+| 2026-08-25 | 阈值触发计算 | 后端统一计算（合并 watchlist + watchlist_quotes 快照） | 规则唯一；前后端复用；用户改阈值时不用同步前端逻辑 |
+| 2026-08-25 | 表格触发高亮 | 左边框 4px + 淡底色（涨=红 / 跌=绿 / 换手=金） | 与 A 股红涨绿跌一致；表格紧凑不破坏布局；同时触发多类时按「涨 > 跌 > 换手」优先级取色 |
+| 2026-08-25 | 数据库路径隔离测试 | `STOCK_DB_PATH` env > config.DB_PATH（默认，正式环境不走 env）| 测试自动化安全隔离，不破坏用户本地真实库；对生产无侵入，完全向后兼容 |
+| 2026-08-25 | FastAPI 路由注册顺序 | 静态路径（`/batch-thresholds`）必须注册在动态路径（`/{item_id}`）之前 | FastAPI 按注册顺序匹配路由，动态路径会先匹配到静态字符串导致 422 `int_parsing` 错误（验收 Bug 5/6 根因） |
+| 2026-08-25 | axios 错误拦截器增强 | 兼容 FastAPI `detail` 三种格式：字符串 / 数组（422 校验） / 对象 | 原拦截器只处理字符串型 `detail`，422 数组型 detail 被 `${msg}` 隐式转为 `[object Object]`（验收 Bug 6 根因） |
+| 2026-08-25 | 模块刷新顺序 | `ALL_MODULES` 中 indices 放最后（watchlist_quotes 之后） | py_mini_racer（akshare 内部 V8 引擎）在 watchlist_quotes 高并发调用后内存池易崩溃，导致后续模块失败；indices 放最后避免被波及 |
+| 2026-08-25 | 自选股行情数据源 4 阶段容错 | 东财批量 → 新浪批量 → 新浪单票聚合（8 worker 并发）→ 失败返回 None | 东财和新浪批量接口均不稳定，新浪单票 daily API 最可靠但慢，作为终极兜底 |
 
 ---
 
@@ -633,4 +731,4 @@
 
 ---
 
-*文档版本：v0.9 · 状态：阶段 2.1 自选股管理验收通过（三层独立自动化验证全绿：Unit 48/48 + HTTP 4 项 + UI 7+4 项；含 2 项用户反馈 bug 修复 + 100 只上限全链路同步），下一次开发进入阶段 2 第 2 次（2.2 阈值配置界面打磨 + 2.3 盘后异动筛选集中展示）*
+*文档版本：v1.1 · 状态：阶段 2.2 / 2.3 用户验收全部通过（12/12 项验收清单全绿 + 路由顺序 Bug 修复 + 行情数据 4 阶段容错 + 模块刷新顺序优化）。下一次开发阶段 2 第 3 次：龙虎榜（2.4）+ 风险预警详情（2.5）*
