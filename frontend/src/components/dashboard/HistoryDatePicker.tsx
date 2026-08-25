@@ -50,29 +50,45 @@ export default function HistoryDatePicker({ value, onChange }: HistoryDatePicker
 
   const cellRender = (
     current: Dayjs | string | number,
-    info: { type: 'date' | 'month' | 'year' | 'decade' }
+    info: { type: 'date' | 'month' | 'year' | 'decade'; originNode?: React.ReactNode }
   ): React.ReactNode => {
     if (!current || typeof current === 'string' || typeof current === 'number') {
-      return undefined;
+      return info?.originNode ?? null;
     }
-    // 只在 date 面板（日粒度）自定义蓝点高亮；年/月/十年面板走 AntD 默认渲染
-    if (info.type !== 'date') {
-      return undefined;
+
+    // date 面板（日粒度）：自定义蓝点高亮
+    if (info.type === 'date') {
+      const dateStr = current.format('YYYY-MM-DD');
+      if (availableDates.has(dateStr)) {
+        return (
+          <Badge
+            dot
+            color="#1677ff"
+            offset={[-2, 2]}
+            style={{ width: '100%', justifyContent: 'center', display: 'inline-flex' }}
+          >
+            <span>{current.date()}</span>
+          </Badge>
+        );
+      }
+      return current.date();
     }
-    const dateStr = current.format('YYYY-MM-DD');
-    if (availableDates.has(dateStr)) {
-      return (
-        <Badge
-          dot
-          color="#1677ff"
-          offset={[-2, 2]}
-          style={{ width: '100%', justifyContent: 'center', display: 'inline-flex' }}
-        >
-          <span>{current.date()}</span>
-        </Badge>
-      );
+
+    // 非 date 面板（month / year / decade）：
+    // 优先返回 AntD 默认渲染 originNode；没有时自己按类型渲染对应文本，避免空白
+    if (info.originNode !== undefined && info.originNode !== null) {
+      return info.originNode;
     }
-    return current.date();
+    switch (info.type) {
+      case 'month':
+        return current.format('MMM');
+      case 'year':
+        return current.format('YYYY');
+      case 'decade':
+        return current.format('YYYY');
+      default:
+        return null;
+    }
   };
 
   const handleChange = (d: Dayjs | null) => {
