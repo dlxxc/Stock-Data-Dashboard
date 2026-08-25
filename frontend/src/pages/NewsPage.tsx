@@ -102,9 +102,11 @@ export default function NewsPage() {
           return (
             <a
               href={record.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ fontWeight: 500 }}
+              onClick={(e) => {
+                e.preventDefault();
+                window.open(record.url, '_blank', 'noopener,noreferrer');
+              }}
+              style={{ fontWeight: 500, cursor: 'pointer' }}
             >
               {title} <LinkOutlined style={{ fontSize: 12, marginLeft: 4 }} />
             </a>

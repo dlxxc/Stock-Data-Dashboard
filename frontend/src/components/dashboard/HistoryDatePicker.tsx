@@ -9,7 +9,7 @@
  *
  * 不做节假日判断（军规 7：避免引入节假日表）。
  */
-import { DatePicker, Typography } from 'antd';
+import { Badge, DatePicker, Typography } from 'antd';
 import { useEffect, useState } from 'react';
 import dayjs, { type Dayjs } from 'dayjs';
 import { listSnapshotDates } from '@/api/snapshot';
@@ -48,17 +48,28 @@ export default function HistoryDatePicker({ value, onChange }: HistoryDatePicker
     return current.isAfter(dayjs(), 'day');
   };
 
-  const cellRender = (current: Dayjs | string | number): React.ReactNode => {
+  const cellRender = (
+    current: Dayjs | string | number,
+    info: { type: 'date' | 'month' | 'year' | 'decade' }
+  ): React.ReactNode => {
     if (!current || typeof current === 'string' || typeof current === 'number') {
-      return null;
+      return undefined;
+    }
+    // 只在 date 面板（日粒度）自定义蓝点高亮；年/月/十年面板走 AntD 默认渲染
+    if (info.type !== 'date') {
+      return undefined;
     }
     const dateStr = current.format('YYYY-MM-DD');
     if (availableDates.has(dateStr)) {
       return (
-        <div style={{ position: 'relative' }}>
-          <span style={{ position: 'absolute', top: -2, right: 0, width: 6, height: 6, borderRadius: '50%', background: '#1677ff' }} />
-          {current.date()}
-        </div>
+        <Badge
+          dot
+          color="#1677ff"
+          offset={[-2, 2]}
+          style={{ width: '100%', justifyContent: 'center', display: 'inline-flex' }}
+        >
+          <span>{current.date()}</span>
+        </Badge>
       );
     }
     return current.date();
