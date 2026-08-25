@@ -12,6 +12,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import AppHeader from '@/components/AppHeader';
 import OverviewPage from '@/pages/OverviewPage';
 import WatchlistPage from '@/pages/WatchlistPage';
+import DragonTigerPage from '@/pages/DragonTigerPage';
 
 const { Header, Content, Footer } = Layout;
 
@@ -42,6 +43,7 @@ function App() {
               <Routes>
                 <Route path="/" element={<OverviewPage />} />
                 <Route path="/watchlist" element={<WatchlistPage />} />
+                <Route path="/dragon-tiger" element={<DragonTigerPage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </Content>

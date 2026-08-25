@@ -2,6 +2,7 @@
 
 每个子模块封装一个数据维度，对外暴露统一的 fetch() 接口。
 """
+from .dragon_tiger import fetch as fetch_dragon_tiger
 from .indices import fetch as fetch_indices
 from .limit_pool import fetch as fetch_limit_pool
 from .money_flow import fetch as fetch_money_flow
@@ -15,6 +16,7 @@ FETCHERS = {
     "money_flow": fetch_money_flow,
     "sector_breadth": fetch_sector_breadth,
     "watchlist_quotes": fetch_watchlist_quotes,
+    "dragon_tiger": fetch_dragon_tiger,
 }
 
 __all__ = [
@@ -24,4 +26,5 @@ __all__ = [
     "fetch_money_flow",
     "fetch_sector_breadth",
     "fetch_watchlist_quotes",
+    "fetch_dragon_tiger",
 ]

@@ -10,6 +10,7 @@ export const MODULE_LABELS: Record<string, string> = {
   money_flow: '行业资金流',
   sector_breadth: '板块涨跌广度',
   watchlist_quotes: '自选股行情',
+  dragon_tiger: '龙虎榜',
 };
 
 /** 模块展示顺序（与后端 ALL_MODULES 一致） */
@@ -18,6 +19,7 @@ export const MODULE_ORDER = [
   'money_flow',
   'sector_breadth',
   'watchlist_quotes',
+  'dragon_tiger',
   'indices',
 ];
 

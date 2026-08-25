@@ -31,17 +31,21 @@ MODULE_LIMIT_POOL = "limit_pool"
 MODULE_MONEY_FLOW = "money_flow"
 MODULE_SECTOR_BREADTH = "sector_breadth"
 MODULE_WATCHLIST_QUOTES = "watchlist_quotes"
+MODULE_DRAGON_TIGER = "dragon_tiger"
 
 # 所有模块列表（顺序即刷新顺序）
 # 说明：py_mini_racer（akshare 内部 V8 引擎）在 watchlist_quotes 长时间高并发调用后
 # 容易出现内存池崩溃，导致排在它后面的模块跟着失败。因此把 indices 放在 watchlist_quotes
 # 之后，让 indices 不会因为 py_mini_racer 崩溃而失败；watchlist_quotes 自身有 4 阶段兜底，
 # 即使 py_mini_racer 崩溃也会返回新浪单票聚合数据。
+# dragon_tiger 也用 8 worker 并发拉席位，放在 watchlist_quotes 之后 + indices 之前，
+# 与现有模块刷新流水线一致。
 ALL_MODULES = [
     MODULE_LIMIT_POOL,
     MODULE_MONEY_FLOW,
     MODULE_SECTOR_BREADTH,
     MODULE_WATCHLIST_QUOTES,
+    MODULE_DRAGON_TIGER,
     MODULE_INDICES,
 ]
 

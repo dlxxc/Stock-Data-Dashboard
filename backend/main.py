@@ -37,6 +37,7 @@ import watchlist as watchlist_svc
 from config import (
     WATCHLIST_MAX_SIZE,
     MODULE_WATCHLIST_QUOTES,
+    MODULE_DRAGON_TIGER,
     WATCHLIST_DEFAULT_GAIN_PCT,
     WATCHLIST_DEFAULT_LOSS_PCT,
     WATCHLIST_DEFAULT_TURNOVER_PCT,
@@ -635,6 +636,87 @@ def api_watchlist_alerts(trade_date: str | None = None) -> dict:
         },
         "items": all_items,
         "empty": False,
+    }
+
+
+# ========== 龙虎榜接口（阶段 2.4）==========
+
+@app.get("/api/dragon-tiger")
+def api_dragon_tiger(trade_date: str | None = None) -> dict:
+    """读取龙虎榜快照（当日上榜股票 + 前 5 买/卖出席位）。
+
+    数据来源：当日快照的 `dragon_tiger` 模块（刷新时统一存档，避免此接口再次调 akshare）。
+
+    Args:
+        trade_date: 可选 YYYY-MM-DD；不传则取最新快照
+
+    Returns:
+        成功：
+            {
+                "trade_date": "2026-08-25",
+                "total": 30,
+                "stocks": [{code, name, close, pct_chg, net_buy, ..., seats: {...}}, ...]
+            }
+        失败 / 未归档：
+            {
+                "trade_date": "...",
+                "total": 0,
+                "stocks": [],
+                "empty": true,
+                "error": "..."
+            }
+        无任何存档：
+            {"empty": true}
+    """
+    # 1. 拿快照
+    if trade_date:
+        snap = get_snapshot_by_date(trade_date)
+    else:
+        snap = get_latest_snapshot()
+
+    if snap is None:
+        return {"empty": True}
+
+    modules = snap.get("modules", {}) or {}
+    dt_module_in_snap = MODULE_DRAGON_TIGER in modules
+    dt_module = modules.get(MODULE_DRAGON_TIGER) or {}
+
+    # 2. 失败检测（军规：失败即空，绝不造数据）
+    # 来源1：模块返回本身包含 error 字段（数据源层直接失败）
+    module_error = dt_module.get("error") if isinstance(dt_module, dict) else None
+    # 来源2：snapshots 表 status=failed → error 存在于 snap["failed_modules"]
+    if module_error is None:
+        failed_list = snap.get("failed_modules") or []
+        for fm in failed_list:
+            if fm.get("module") == MODULE_DRAGON_TIGER:
+                module_error = fm.get("error") or "龙虎榜模块拉取失败（快照标记为 failed）"
+                break
+    # 来源3：模块本身不存在（刷新时未运行此模块）→ 视为"未归档"
+    if module_error is None and not dt_module_in_snap:
+        module_error = (
+            f"快照日期 {snap['trade_date']} 未包含龙虎榜模块（dragon_tiger 尚未归档），"
+            f"请先刷新数据。"
+        )
+    elif module_error is None and isinstance(dt_module, dict) and len(dt_module) == 0:
+        module_error = f"快照日期 {snap['trade_date']} 龙虎榜模块为空（无上榜数据），请稍后重试或刷新。"
+
+    if module_error:
+        return {
+            "trade_date": snap["trade_date"],
+            "total": 0,
+            "stocks": [],
+            "empty": True,
+            "error": module_error,
+        }
+
+    # 3. 成功 → 返回标准化结构（后端 fetch 已经把 stocks 排好序，前端直接用）
+    stocks = dt_module.get("stocks", []) or []
+    total = dt_module.get("total", len(stocks))
+
+    return {
+        "trade_date": snap["trade_date"],
+        "total": total,
+        "stocks": stocks,
     }
 
 
