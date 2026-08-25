@@ -6,6 +6,7 @@
 - GET  /api/snapshot/latest  读取最后一次成功快照
 - GET  /api/snapshot/{date}  读取指定日期快照
 - GET  /api/snapshot/dates   列出所有有存档的日期
+- GET  /api/risk?date=...    计算风险等级（默认最新快照）
 
 启动：uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 """
@@ -24,6 +25,7 @@ from sse_starlette.sse import EventSourceResponse
 from config import ALL_MODULES, HOST, PORT
 from data_sources import FETCHERS
 from db import init_db
+from risk import calculate_risk
 from snapshot import (
     get_latest_snapshot,
     get_snapshot_by_date,
@@ -244,6 +246,36 @@ def get_by_date(trade_date: str) -> dict:
     if snap is None:
         return {"empty": True, "trade_date": trade_date}
     return snap
+
+
+# ========== 风险等级接口（需求 1.10）==========
+@app.get("/api/risk")
+def get_risk(trade_date: str | None = None) -> dict:
+    """计算风险等级（绿/黄/红 + 一句话）
+
+    Args:
+        trade_date: 可选 YYYY-MM-DD；不传则取最新成功快照
+
+    Returns:
+        {
+            "trade_date": "...",
+            "level": "green" | "yellow" | "red",
+            "label": "低风险" | "中风险" | "高风险",
+            "summary": "...",
+            "triggers": [{...}, ...]
+        }
+        或 {"empty": true} 当无存档时
+    """
+    if trade_date:
+        snap = get_snapshot_by_date(trade_date)
+    else:
+        snap = get_latest_snapshot()
+
+    if snap is None:
+        return {"empty": True}
+
+    risk = calculate_risk(snap["modules"])
+    return {"trade_date": snap["trade_date"], **risk}
 
 
 # ========== 入口 ==========

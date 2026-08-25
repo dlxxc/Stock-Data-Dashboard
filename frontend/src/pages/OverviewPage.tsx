@@ -14,9 +14,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, Progress, Result, Space, Spin, Typography } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { getLatestSnapshot, getSnapshotByDate } from '@/api/snapshot';
+import { getRisk } from '@/api/risk';
 import { refreshData, type RefreshDoneEvent, type RefreshProgressEvent } from '@/api/refresh';
 import TradeDateAlert from '@/components/dashboard/TradeDateAlert';
 import HistoryDatePicker from '@/components/dashboard/HistoryDatePicker';
+import RiskLabel from '@/components/dashboard/RiskLabel';
 import IndexCards from '@/components/dashboard/IndexCards';
 import LimitStats from '@/components/dashboard/LimitStats';
 import IndustryFlowChart from '@/components/dashboard/IndustryFlowChart';
@@ -29,6 +31,7 @@ import type {
   SectorBreadthModule,
 } from '@/types/modules';
 import type { DatedSnapshot, LatestSnapshot } from '@/types/snapshot';
+import type { RiskAssessment } from '@/types/risk';
 import { getModuleLabel } from '@/constants/modules';
 
 const { Text } = Typography;
@@ -85,6 +88,10 @@ function OverviewPage() {
   const [loadStatus, setLoadStatus] = useState<LoadStatus>('loading');
   const [loadError, setLoadError] = useState('');
 
+  // ---- 风险等级 ----
+  const [risk, setRisk] = useState<RiskAssessment | null>(null);
+  const [riskError, setRiskError] = useState<string | null>(null);
+
   // ---- 刷新状态 ----
   const [refreshing, setRefreshing] = useState(false);
   const [refreshProgress, setRefreshProgress] = useState<RefreshProgress | null>(null);
@@ -94,9 +101,32 @@ function OverviewPage() {
 
   // ========== 数据加载 ==========
 
+  const loadLatestRisk = useCallback(async () => {
+    setRiskError(null);
+    try {
+      const res = await getRisk();
+      setRisk('empty' in res ? null : res);
+    } catch (e) {
+      setRisk(null);
+      setRiskError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
+  const loadHistoryRisk = useCallback(async (date: string) => {
+    setRiskError(null);
+    try {
+      const res = await getRisk(date);
+      setRisk('empty' in res ? null : res);
+    } catch (e) {
+      setRisk(null);
+      setRiskError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
   const loadLatest = useCallback(async () => {
     setLoadStatus('loading');
     setLoadError('');
+    void loadLatestRisk();  // 并行加载风险，失败不阻塞主视图
     try {
       const res = await getLatestSnapshot();
       if ('empty' in res) {
@@ -110,11 +140,12 @@ function OverviewPage() {
       setLoadStatus('error');
       setLoadError(e instanceof Error ? e.message : String(e));
     }
-  }, []);
+  }, [loadLatestRisk]);
 
   const loadHistory = useCallback(async (date: string) => {
     setLoadStatus('loading');
     setLoadError('');
+    void loadHistoryRisk(date);  // 并行加载风险
     try {
       const res = await getSnapshotByDate(date);
       if ('empty' in res) {
@@ -128,7 +159,7 @@ function OverviewPage() {
       setLoadStatus('error');
       setLoadError(e instanceof Error ? e.message : String(e));
     }
-  }, []);
+  }, [loadHistoryRisk]);
 
   // 启动时读最新快照
   useEffect(() => { void loadLatest(); }, [loadLatest]);
@@ -337,6 +368,16 @@ function OverviewPage() {
       {partialAlert}
       {successAlert}
       <TradeDateAlert tradeDate={trade_date} fetchedAt={fetched_at} />
+      {risk ? (
+        <RiskLabel data={risk} />
+      ) : riskError ? (
+        <Alert
+          type="warning"
+          showIcon
+          message="风险等级读取失败"
+          description={riskError}
+        />
+      ) : null}
       <IndexCards data={indices} failure={getFailure('indices')} onRetry={retryHandler} />
       <LimitStats data={limitPool} failure={getFailure('limit_pool')} onRetry={retryHandler} />
       <IndustryFlowChart data={moneyFlow} failure={getFailure('money_flow')} onRetry={retryHandler} />
