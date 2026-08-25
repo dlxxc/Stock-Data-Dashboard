@@ -19,6 +19,7 @@ import { refreshData, type RefreshDoneEvent, type RefreshProgressEvent } from '@
 import TradeDateAlert from '@/components/dashboard/TradeDateAlert';
 import HistoryDatePicker from '@/components/dashboard/HistoryDatePicker';
 import RiskLabel from '@/components/dashboard/RiskLabel';
+import RiskDetailDrawer from '@/components/dashboard/RiskDetailDrawer';
 import WatchlistAlertsCard from '@/components/dashboard/WatchlistAlertsCard';
 import IndexCards from '@/components/dashboard/IndexCards';
 import LimitStats from '@/components/dashboard/LimitStats';
@@ -92,6 +93,7 @@ function OverviewPage() {
   // ---- 风险等级 ----
   const [risk, setRisk] = useState<RiskAssessment | null>(null);
   const [riskError, setRiskError] = useState<string | null>(null);
+  const [riskDetailOpen, setRiskDetailOpen] = useState(false);
 
   // ---- 刷新状态 ----
   const [refreshing, setRefreshing] = useState(false);
@@ -370,7 +372,7 @@ function OverviewPage() {
       {successAlert}
       <TradeDateAlert tradeDate={trade_date} fetchedAt={fetched_at} />
       {risk ? (
-        <RiskLabel data={risk} />
+        <RiskLabel data={risk} onShowDetail={() => setRiskDetailOpen(true)} />
       ) : riskError ? (
         <Alert
           type="warning"
@@ -379,11 +381,22 @@ function OverviewPage() {
           description={riskError}
         />
       ) : null}
+      <RiskDetailDrawer
+        open={riskDetailOpen}
+        onClose={() => setRiskDetailOpen(false)}
+        tradeDate={historyDate ?? trade_date}
+      />
       {/* 阶段 2.3 · 自选股异动紧凑卡片（情报头版，紧跟风险） */}
       <WatchlistAlertsCard tradeDate={historyDate ?? trade_date} />
-      <IndexCards data={indices} failure={getFailure('indices')} onRetry={retryHandler} />
-      <LimitStats data={limitPool} failure={getFailure('limit_pool')} onRetry={retryHandler} />
-      <IndustryFlowChart data={moneyFlow} failure={getFailure('money_flow')} onRetry={retryHandler} />
+      <div id="index-cards">
+        <IndexCards data={indices} failure={getFailure('indices')} onRetry={retryHandler} />
+      </div>
+      <div id="limit-stats">
+        <LimitStats data={limitPool} failure={getFailure('limit_pool')} onRetry={retryHandler} />
+      </div>
+      <div id="industry-flow">
+        <IndustryFlowChart data={moneyFlow} failure={getFailure('money_flow')} onRetry={retryHandler} />
+      </div>
       <SectorBreadth data={sectorBreadth} failure={getFailure('sector_breadth')} onRetry={retryHandler} />
     </Space>
   );

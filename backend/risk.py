@@ -81,11 +81,17 @@ def _check_limit_pool(modules: dict[str, Any]) -> list[dict[str, Any]]:
         triggers.append({
             "dimension": "情绪过热", "level": "red",
             "detail": f"涨停 {up_total} 家（>{THRESHOLDS['limit_up_hot']['red']}）",
+            "current_value": up_total,
+            "yellow_threshold": THRESHOLDS["limit_up_hot"]["yellow"],
+            "red_threshold": THRESHOLDS["limit_up_hot"]["red"],
         })
     elif up_total > THRESHOLDS["limit_up_hot"]["yellow"]:
         triggers.append({
             "dimension": "情绪过热", "level": "yellow",
             "detail": f"涨停 {up_total} 家（>{THRESHOLDS['limit_up_hot']['yellow']}）",
+            "current_value": up_total,
+            "yellow_threshold": THRESHOLDS["limit_up_hot"]["yellow"],
+            "red_threshold": THRESHOLDS["limit_up_hot"]["red"],
         })
 
     # 情绪过冷（用户调整后阈值）
@@ -93,11 +99,17 @@ def _check_limit_pool(modules: dict[str, Any]) -> list[dict[str, Any]]:
         triggers.append({
             "dimension": "情绪过冷", "level": "red",
             "detail": f"跌停 {down_total} 家（>{THRESHOLDS['limit_down_cold']['red']}）",
+            "current_value": down_total,
+            "yellow_threshold": THRESHOLDS["limit_down_cold"]["yellow"],
+            "red_threshold": THRESHOLDS["limit_down_cold"]["red"],
         })
     elif down_total > THRESHOLDS["limit_down_cold"]["yellow"]:
         triggers.append({
             "dimension": "情绪过冷", "level": "yellow",
             "detail": f"跌停 {down_total} 家（>{THRESHOLDS['limit_down_cold']['yellow']}）",
+            "current_value": down_total,
+            "yellow_threshold": THRESHOLDS["limit_down_cold"]["yellow"],
+            "red_threshold": THRESHOLDS["limit_down_cold"]["red"],
         })
 
     return triggers
@@ -120,11 +132,17 @@ def _check_capital_retreat(modules: dict[str, Any]) -> list[dict[str, Any]]:
         triggers.append({
             "dimension": "资金撤退", "level": "red",
             "detail": f"行业净流出占比 {retreat_pct}%（>{THRESHOLDS['capital_retreat']['red']}%）",
+            "current_value": retreat_pct,
+            "yellow_threshold": THRESHOLDS["capital_retreat"]["yellow"],
+            "red_threshold": THRESHOLDS["capital_retreat"]["red"],
         })
     elif retreat_pct > THRESHOLDS["capital_retreat"]["yellow"]:
         triggers.append({
             "dimension": "资金撤退", "level": "yellow",
             "detail": f"行业净流出占比 {retreat_pct}%（>{THRESHOLDS['capital_retreat']['yellow']}%）",
+            "current_value": retreat_pct,
+            "yellow_threshold": THRESHOLDS["capital_retreat"]["yellow"],
+            "red_threshold": THRESHOLDS["capital_retreat"]["red"],
         })
 
     return triggers
@@ -147,19 +165,24 @@ def _check_index_breakdown(modules: dict[str, Any]) -> list[dict[str, Any]]:
         if idx.get("name") != "上证指数":
             continue
         pct = _to_float(idx.get("pct"))
-        # 仅看跌幅（pct < 0），用绝对值比较
         drop = abs(min(pct, 0))
         if drop > THRESHOLDS["index_breakdown"]["red"]:
             triggers.append({
                 "dimension": "大盘破位", "level": "red",
                 "detail": f"上证跌幅 {pct:.2f}%（跌幅>{THRESHOLDS['index_breakdown']['red']}%）",
+                "current_value": drop,
+                "yellow_threshold": THRESHOLDS["index_breakdown"]["yellow"],
+                "red_threshold": THRESHOLDS["index_breakdown"]["red"],
             })
         elif drop > THRESHOLDS["index_breakdown"]["yellow"]:
             triggers.append({
                 "dimension": "大盘破位", "level": "yellow",
                 "detail": f"上证跌幅 {pct:.2f}%（跌幅>{THRESHOLDS['index_breakdown']['yellow']}%）",
+                "current_value": drop,
+                "yellow_threshold": THRESHOLDS["index_breakdown"]["yellow"],
+                "red_threshold": THRESHOLDS["index_breakdown"]["red"],
             })
-        break  # 只取上证指数
+        break
 
     return triggers
 

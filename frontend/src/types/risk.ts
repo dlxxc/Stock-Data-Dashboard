@@ -15,6 +15,12 @@ export interface RiskTrigger {
   level: RiskLevel;
   /** 一句话明细（如「跌停 23 家（>15）」） */
   detail: string;
+  /** 当前值（原始数字，如 46） */
+  current_value: number;
+  /** 黄线阈值 */
+  yellow_threshold: number;
+  /** 红线阈值 */
+  red_threshold: number;
 }
 
 /** GET /api/risk 返回结构 */

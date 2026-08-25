@@ -7,7 +7,8 @@
  * - 风险等级的红/黄/绿是通用风险信号色，与 A 股「红涨绿跌」交易配色无关，不会混淆
  * - 直接使用 antd 默认色板：success / warning / error
  */
-import { Card, Tag, Tooltip, Typography } from 'antd';
+import { Card, Tag, Tooltip, Typography, Button } from 'antd';
+import { InfoCircleOutlined } from '@ant-design/icons';
 import type { RiskAssessment, RiskLevel } from '@/types/risk';
 
 const { Text } = Typography;
@@ -49,9 +50,11 @@ function triggerTagColor(level: RiskLevel): string {
 interface RiskLabelProps {
   /** 风险评估结果（来自 /api/risk） */
   data: RiskAssessment;
+  /** 点击详情按钮回调 */
+  onShowDetail?: () => void;
 }
 
-export default function RiskLabel({ data }: RiskLabelProps) {
+export default function RiskLabel({ data, onShowDetail }: RiskLabelProps) {
   const { level, label, summary, triggers } = data;
   const color = RISK_COLORS[level];
 
@@ -101,6 +104,19 @@ export default function RiskLabel({ data }: RiskLabelProps) {
             </div>
           ) : null}
         </div>
+
+        {/* 右上角：详情按钮 */}
+        {onShowDetail && (
+          <Button
+            type="link"
+            size="small"
+            icon={<InfoCircleOutlined />}
+            onClick={onShowDetail}
+            style={{ color: color.text }}
+          >
+            详情
+          </Button>
+        )}
       </div>
     </Card>
   );
