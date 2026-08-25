@@ -411,7 +411,7 @@
 - [x] **2.1 自选股管理**：增删查改 ✅ 2026-08-25（自测通过，用户验收通过）
 - [x] **2.2 自选股异动阈值**：单票弹窗 + 批量设置 + 一键重置默认值 ✅ 2026-08-25
 - [x] **2.3 自选股异动筛选**：盘后统一筛选超阈值票集中展示（总览紧凑卡片 + 自选股页 Tabs 区域） ✅ 2026-08-25
-- [ ] **2.4 龙虎榜模块**：榜单明细
+- [x] **2.4 龙虎榜模块**：榜单明细（净买入 TOP + 前 5 买卖席位） ✅ 2026-08-25
 - [ ] **2.5 风险预警详情**：Top3 风险规则计算与详情页
 
 #### 开发步骤（3次）
@@ -420,7 +420,7 @@
 |---|---|---|---|
 | 第1次开发 | 2.1 | 自选股管理基础 | ✅ 验收通过 2026-08-25 |
 | 第2次开发 | 2.2 + 2.3 | 异动阈值配置 + 筛选展示 | ✅ 用户验收通过 2026-08-25 |
-| 第3次开发 | 2.4 + 2.5 | 龙虎榜 + 风险预警详情 | ⏳ 未开始 |
+| 第3次开发 | 2.4 + 2.5 | 龙虎榜 + 风险预警详情 | 🔄 2.4 已完成，2.5 待开发 |
 
 #### 阶段 2 第1次开发（2.1）验收记录（2026-08-25）
 
@@ -603,6 +603,64 @@
 | 5 | 单票编辑「一键重置默认值」报错 `[object Object]` | FastAPI 路由注册顺序问题：`PATCH /api/watchlist/{item_id}` 注册在 `/api/watchlist/batch-thresholds` 之前，导致 `"batch-thresholds"` 被当作 `item_id` 字符串解析，返回 422 `int_parsing` 错误 | [main.py](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/backend/main.py#L364-L434)：把批量阈值路由移到单票路由之前，并加注释说明顺序原因 |
 | 6 | 批量设置阈值 / 批量重置默认值同样报错 `[object Object]` | 同上路由顺序问题（3 个操作共用 `/batch-thresholds` 端点）；且前端 axios 拦截器把 FastAPI 422 返回的数组型 `detail` 直接 `${msg}` 拼接，数组对象隐式转为 `[object Object]` | [client.ts](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/api/client.ts#L17-L51)：增强错误拦截器，正确提取 FastAPI 422 校验错误的 `loc` 和 `msg`，兼容字符串/数组/对象三种 `detail` 格式 |
 
+---
+
+#### 阶段 2 第 3 次开发（2.4 龙虎榜）验收记录（2026-08-25）
+
+**完成内容**：
+
+**后端**：
+
+- 新增「龙虎榜」数据模块 [dragon_tiger.py](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/backend/data_sources/dragon_tiger.py)：
+  - 主源东财 `stock_lhb_detail_em`（龙虎榜明细：代码/名称/收盘价/涨跌幅/净买额/买入额/卖出额/成交额/换手率/上榜原因）
+  - 并发 8 worker 拉 `stock_lhb_stock_detail_em`（个股买卖席位：买方名称/净额/价格、卖方名称/净额/价格）
+  - 容错策略：主榜单失败抛异常 → 外层存档 `status='failed'`；个股席位失败该票 `seats=null` + `seats_error`，不影响整体榜单
+  - 输出字段统一：`stocks[].net_buy_amount / buy_amount / sell_amount / turnover_rate / seats.buy_seats / seats.sell_seats`
+- [config.py](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/backend/config.py)：新增 `MODULE_DRAGON_TIGER = "dragon_tiger"`，加入 `ALL_MODULES`（watchlist_quotes 之后、indices 之前）
+- [data_sources/__init__.py](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/backend/data_sources/__init__.py)：导出 `fetch_dragon_tiger` 并登记到 `FETCHERS`
+- [main.py](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/backend/main.py)：新增 `GET /api/dragon-tiger` 接口
+  - 支持 `trade_date=YYYY-MM-DD` 查询参数（不传取最新）
+  - 3 类失败兜底：① 模块失败（`error='...'`）→ `{stocks: [], total: 0, empty: true, error: '后端错误: ...'}`；② 模块未归档 → `{empty: true, error: '未包含龙虎榜模块，请先刷新数据'}`；③ 模块为空 dict → 同 ②
+- 新增 [tests/test_phase2_4.py](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/backend/tests/test_phase2_4.py)：81 项断言全通过
+
+**前端**：
+
+- 新增 [types/dragon_tiger.ts](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/types/dragon_tiger.ts)：`DragonTigerSeat / DragonTigerStock / DragonTigerResponse` 类型定义
+- 新增 [api/dragon_tiger.ts](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/api/dragon_tiger.ts)：`getDragonTiger` 接口封装
+- 新增 [DragonTigerPage.tsx](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/pages/DragonTigerPage.tsx)：
+  - 主榜单表格：代码/名称/收盘价/涨跌幅/龙虎榜净买额/买入额/卖出额/成交额/换手率（8 列，按净买额降序，**不可点击排序**）
+  - 行展开：双栏并排卡片——左「买入席位 TOP5」/ 右「卖出席位 TOP5」，显示席位名称/净额/价格
+  - 席位状态：有席位正常渲染；席位失败 → 橙色 Alert「该票席位明细拉取失败，席位数据可能不完整」
+  - 4 状态分支：① 后端错误 → 红色 Alert + 重试按钮；② 未归档 → 橙色 Alert + 跳转刷新按钮；③ 空数据 → 空状态引导；④ 正常 → 表格
+  - 历史日期选择器：30 天内回看
+- 修改 [constants/modules.ts](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/constants/modules.ts)：注册 `dragon_tiger: '龙虎榜'`
+- 修改 [App.tsx](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/App.tsx)：注册 `/dragon-tiger` 路由
+- 修改 [AppHeader.tsx](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/components/AppHeader.tsx)：新增「龙虎榜」导航 Tab（TrophyOutlined 图标）
+- **TS 编译验证**：`npx tsc --noEmit` **exit_code=0，0 报错**
+
+**用户验收 Bug 修复沉淀（2 项，2026-08-25）**：
+
+| # | Bug | 根因 | 修复 |
+|---|---|---|---|
+| 1 | 刷新数据只有 5 个模块，龙虎榜 404 | 后端跑的是旧代码（PID 19948 僵尸进程占 8001），新代码未加载到后端 | 清 `__pycache__` + 后端换端口 8002 重启 + 前端 vite 代理同步指向 8002 |
+| 2 | 龙虎榜净买额列点击排序后数据错乱（重复行） | AntD Table `sorter` 属性对 null/undefined 值的对比产生不稳定排序；且后端已按净买额降序排好，前端排序是多余的 | 去掉 `sorter` 和 `defaultSortOrder` 属性，列头不再可点击排序；标题加 `↓` 图标提示当前为降序 |
+
+**三层自动化验证（全绿通过，2026-08-25）**：
+
+| 层级 | 验证方式 | 结果 |
+|---|---|---|
+| **后端 Unit** | `tests/test_phase2_4.py`（临时 SQLite + 直接调路由函数 + TestClient） | ✅ **81/81 通过**：工具函数 19 + 解析 19 + 接口路由 37 + 模块注册 6 |
+| **前端类型检查** | `npx tsc --noEmit --project tsconfig.json` | ✅ **0 错误**，exit_code=0 |
+| **真实数据拉取** | akshare `stock_lhb_detail_em` + `stock_lhb_stock_detail_em` 直调 | ✅ **2026-08-25 当日 64 只上榜票 + 39/39 全部席位**，总耗时 ~6s |
+| **浏览器 UI 验收** | 6 项清单：① 榜单净买额降序；② 红涨绿跌；③ 金额自动转亿/万；④ 行展开买卖席位；⑤ 历史回看；⑥ 失败处理铁律（停后端→红Alert；未刷新→橙Alert；空库→空状态） | ✅ **6/6 通过** |
+| **全链路端到端** | vite 代理 5173 → 8002 后端 → 真实 SQLite | ✅ 刷新数据显示 6 模块，龙虎榜页完整展示 |
+
+**Git 提交**：
+```
+88f8c0c feat(dragon_tiger): 阶段2.4 龙虎榜模块完成
+```
+
+---
 
 ### 阶段 3：资讯与 AI（增强功能验收后，分2次开发）
 
@@ -711,6 +769,10 @@
 | 2026-08-25 | axios 错误拦截器增强 | 兼容 FastAPI `detail` 三种格式：字符串 / 数组（422 校验） / 对象 | 原拦截器只处理字符串型 `detail`，422 数组型 detail 被 `${msg}` 隐式转为 `[object Object]`（验收 Bug 6 根因） |
 | 2026-08-25 | 模块刷新顺序 | `ALL_MODULES` 中 indices 放最后（watchlist_quotes 之后） | py_mini_racer（akshare 内部 V8 引擎）在 watchlist_quotes 高并发调用后内存池易崩溃，导致后续模块失败；indices 放最后避免被波及 |
 | 2026-08-25 | 自选股行情数据源 4 阶段容错 | 东财批量 → 新浪批量 → 新浪单票聚合（8 worker 并发）→ 失败返回 None | 东财和新浪批量接口均不稳定，新浪单票 daily API 最可靠但慢，作为终极兜底 |
+| 2026-08-25 | 龙虎榜数据源 | 东财 `stock_lhb_detail_em`（主榜单）+ `stock_lhb_stock_detail_em`（个股买卖席位） | 与现有数据源策略一致；主榜单失败抛异常让外层存档 status=failed；个股席位失败该票 seats=null，不影响整体榜单 |
+| 2026-08-25 | 龙虎榜排序 | 后端按净买额降序，前端不可点击排序（无 sorter 属性） | 净买入额 = 主力资金净流入，复盘最有情报价值；前端 sorter 在 null 对比时产生不稳定排序（重复行），直接去掉 |
+| 2026-08-25 | 龙虎榜刷新位置 | `ALL_MODULES` 中 dragon_tiger 放在 watchlist_quotes 之后、indices 之前 | 两个模块都用 8 worker 并发，但龙虎榜只在刷新瞬间跑一次（非循环），放在 watchlist_quotes 之后不影响 |
+| 2026-08-25 | 端口 8001 僵尸进程 | Windows 内核级 socket 残留（PID 19948），无法在用户态杀掉，后端临时跑在 8002 | 下次开机自动释放；vite.config.ts 代理已同步指向 8002 |
 
 ---
 
@@ -731,4 +793,4 @@
 
 ---
 
-*文档版本：v1.1 · 状态：阶段 2.2 / 2.3 用户验收全部通过（12/12 项验收清单全绿 + 路由顺序 Bug 修复 + 行情数据 4 阶段容错 + 模块刷新顺序优化）。下一次开发阶段 2 第 3 次：龙虎榜（2.4）+ 风险预警详情（2.5）*
+*文档版本：v1.2 · 状态：阶段 2.4 龙虎榜已完成（81/81 测试通过，6/6 验收清单全绿，2 项 Bug 修复）。下一次开发：阶段 2.5 风险预警详情*
