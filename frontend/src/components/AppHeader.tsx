@@ -2,16 +2,16 @@
  * 应用头部（阶段 2 改造）
  *
  * 左侧：产品名 + 副标题
- * 右侧：导航菜单（总览 / 自选股 / 龙虎榜）
+ * 右侧：导航菜单（总览 / 自选股 / 龙虎榜 / 资讯）
  */
 import { Menu, Typography } from 'antd';
 import type { MenuProps } from 'antd';
-import { DashboardOutlined, StarOutlined, TrophyOutlined } from '@ant-design/icons';
+import { DashboardOutlined, StarOutlined, TrophyOutlined, FileTextOutlined } from '@ant-design/icons';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 const { Title, Text } = Typography;
 
-type MenuKey = '/' | '/watchlist' | '/dragon-tiger';
+type MenuKey = '/' | '/watchlist' | '/dragon-tiger' | '/news';
 
 function AppHeader() {
   const location = useLocation();
@@ -33,13 +33,20 @@ function AppHeader() {
       icon: <TrophyOutlined />,
       label: '龙虎榜',
     },
+    {
+      key: '/news',
+      icon: <FileTextOutlined />,
+      label: '资讯',
+    },
   ];
 
   const selectedKey: MenuKey = location.pathname.startsWith('/watchlist')
     ? '/watchlist'
     : location.pathname.startsWith('/dragon-tiger')
       ? '/dragon-tiger'
-      : '/';
+      : location.pathname.startsWith('/news')
+        ? '/news'
+        : '/';
 
   return (
     <div
@@ -57,6 +64,7 @@ function AppHeader() {
           display: 'flex',
           alignItems: 'baseline',
           gap: 16,
+          flexShrink: 0,
         }}
       >
         <Title level={4} style={{ color: '#fff', margin: 0 }}>
@@ -77,7 +85,8 @@ function AppHeader() {
         style={{
           background: 'transparent',
           borderBottom: 'none',
-          minWidth: 200,
+          flex: 1,
+          justifyContent: 'flex-end',
         }}
       />
     </div>

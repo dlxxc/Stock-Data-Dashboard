@@ -11,6 +11,7 @@ export const MODULE_LABELS: Record<string, string> = {
   sector_breadth: '板块涨跌广度',
   watchlist_quotes: '自选股行情',
   dragon_tiger: '龙虎榜',
+  news: '财经资讯',
 };
 
 /** 模块展示顺序（与后端 ALL_MODULES 一致） */
@@ -21,6 +22,7 @@ export const MODULE_ORDER = [
   'watchlist_quotes',
   'dragon_tiger',
   'indices',
+  'news',
 ];
 
 /** 取模块中文名，未知模块回退原 key */

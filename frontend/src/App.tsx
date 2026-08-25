@@ -13,6 +13,7 @@ import AppHeader from '@/components/AppHeader';
 import OverviewPage from '@/pages/OverviewPage';
 import WatchlistPage from '@/pages/WatchlistPage';
 import DragonTigerPage from '@/pages/DragonTigerPage';
+import NewsPage from '@/pages/NewsPage';
 
 const { Header, Content, Footer } = Layout;
 
@@ -44,6 +45,7 @@ function App() {
                 <Route path="/" element={<OverviewPage />} />
                 <Route path="/watchlist" element={<WatchlistPage />} />
                 <Route path="/dragon-tiger" element={<DragonTigerPage />} />
+                <Route path="/news" element={<NewsPage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </Content>

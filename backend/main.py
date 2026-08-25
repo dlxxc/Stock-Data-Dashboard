@@ -38,6 +38,7 @@ from config import (
     WATCHLIST_MAX_SIZE,
     MODULE_WATCHLIST_QUOTES,
     MODULE_DRAGON_TIGER,
+    MODULE_NEWS,
     WATCHLIST_DEFAULT_GAIN_PCT,
     WATCHLIST_DEFAULT_LOSS_PCT,
     WATCHLIST_DEFAULT_TURNOVER_PCT,
@@ -717,6 +718,90 @@ def api_dragon_tiger(trade_date: str | None = None) -> dict:
         "trade_date": snap["trade_date"],
         "total": total,
         "stocks": stocks,
+    }
+
+
+# ========== 资讯接口（阶段 3.1）==========
+
+@app.get("/api/news")
+def api_news(trade_date: str | None = None) -> dict:
+    """读取资讯快照（当日刷新时抓取的 20 条财经快讯）。
+
+    数据来源：当日快照的 `news` 模块（刷新时统一存档，避免此接口再次调 akshare）。
+
+    Args:
+        trade_date: 可选 YYYY-MM-DD；不传则取最新快照
+
+    Returns:
+        成功：
+            {
+                "trade_date": "2026-08-25",
+                "total": 20,
+                "articles": [{title, summary, publish_time, url}, ...],
+                "source": "eastmoney" | "sina"
+            }
+        失败 / 未归档：
+            {
+                "trade_date": "...",
+                "total": 0,
+                "articles": [],
+                "empty": true,
+                "error": "..."
+            }
+        无任何存档：
+            {"empty": true}
+    """
+    # 1. 拿快照
+    if trade_date:
+        snap = get_snapshot_by_date(trade_date)
+    else:
+        snap = get_latest_snapshot()
+
+    if snap is None:
+        return {"empty": True}
+
+    modules = snap.get("modules", {}) or {}
+    news_module_in_snap = MODULE_NEWS in modules
+    news_module = modules.get(MODULE_NEWS) or {}
+
+    # 2. 失败检测（军规：失败即空，绝不造数据）
+    # 来源1：模块返回本身包含 error 字段（数据源层直接失败）
+    module_error = news_module.get("error") if isinstance(news_module, dict) else None
+    # 来源2：snapshots 表 status=failed → error 存在于 snap["failed_modules"]
+    if module_error is None:
+        failed_list = snap.get("failed_modules") or []
+        for fm in failed_list:
+            if fm.get("module") == MODULE_NEWS:
+                module_error = fm.get("error") or "资讯模块拉取失败（快照标记为 failed）"
+                break
+    # 来源3：模块本身不存在（刷新时未运行此模块）→ 视为"未归档"
+    if module_error is None and not news_module_in_snap:
+        module_error = (
+            f"快照日期 {snap['trade_date']} 未包含资讯模块（news 尚未归档），"
+            f"请先刷新数据。"
+        )
+    elif module_error is None and isinstance(news_module, dict) and len(news_module) == 0:
+        module_error = f"快照日期 {snap['trade_date']} 资讯模块为空，请稍后重试或刷新。"
+
+    if module_error:
+        return {
+            "trade_date": snap["trade_date"],
+            "total": 0,
+            "articles": [],
+            "empty": True,
+            "error": module_error,
+        }
+
+    # 3. 成功 → 返回标准化结构
+    articles = news_module.get("articles", []) or []
+    total = news_module.get("total", len(articles))
+    source = news_module.get("source", "unknown")
+
+    return {
+        "trade_date": snap["trade_date"],
+        "total": total,
+        "articles": articles,
+        "source": source,
     }
 
 

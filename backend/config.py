@@ -14,7 +14,7 @@ DB_PATH = PROJECT_ROOT / "data" / "stock_dashboard.db"
 
 # ========== 服务配置 ==========
 HOST = "127.0.0.1"
-PORT = 8001
+PORT = 8003
 
 # ========== 数据源配置 ==========
 # 4 大指数代码（新浪数据源不含北证50，后续可扩展）
@@ -32,6 +32,7 @@ MODULE_MONEY_FLOW = "money_flow"
 MODULE_SECTOR_BREADTH = "sector_breadth"
 MODULE_WATCHLIST_QUOTES = "watchlist_quotes"
 MODULE_DRAGON_TIGER = "dragon_tiger"
+MODULE_NEWS = "news"
 
 # 所有模块列表（顺序即刷新顺序）
 # 说明：py_mini_racer（akshare 内部 V8 引擎）在 watchlist_quotes 长时间高并发调用后
@@ -40,6 +41,7 @@ MODULE_DRAGON_TIGER = "dragon_tiger"
 # 即使 py_mini_racer 崩溃也会返回新浪单票聚合数据。
 # dragon_tiger 也用 8 worker 并发拉席位，放在 watchlist_quotes 之后 + indices 之前，
 # 与现有模块刷新流水线一致。
+# news 资讯模块轻量级 JSON 接口，放在 indices 之后（阶段 3.1）。
 ALL_MODULES = [
     MODULE_LIMIT_POOL,
     MODULE_MONEY_FLOW,
@@ -47,6 +49,7 @@ ALL_MODULES = [
     MODULE_WATCHLIST_QUOTES,
     MODULE_DRAGON_TIGER,
     MODULE_INDICES,
+    MODULE_NEWS,
 ]
 
 # ========== 快照配置 ==========
