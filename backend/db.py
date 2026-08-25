@@ -74,11 +74,26 @@ def init_db() -> None:
             ON snapshots(trade_date)
         """)
 
-        # 配置表：自选股、AI Key 等（后续阶段用）
+        # 配置表：AI Key 等（后续阶段用）
         conn.execute("""
             CREATE TABLE IF NOT EXISTS config (
                 key TEXT PRIMARY KEY,
                 value TEXT
+            )
+        """)
+
+        # 自选股表（阶段 2 功能）
+        # 阈值单位均为 %；gain_pct 涨幅、loss_pct 跌幅绝对值、turnover_pct 换手率
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS watchlist (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                stock_code TEXT NOT NULL UNIQUE,
+                stock_name TEXT NOT NULL,
+                gain_pct REAL NOT NULL DEFAULT 5.0,
+                loss_pct REAL NOT NULL DEFAULT 5.0,
+                turnover_pct REAL NOT NULL DEFAULT 10.0,
+                created_at TEXT DEFAULT (datetime('now', 'localtime')),
+                updated_at TEXT DEFAULT (datetime('now', 'localtime'))
             )
         """)
 

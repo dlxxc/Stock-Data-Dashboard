@@ -1,30 +1,78 @@
 /**
- * 应用头部
+ * 应用头部（阶段 2 改造）
  *
- * 阶段 1 第 2 次开发：仅展示产品名与简短说明
- * 阶段 1 第 4 次开发：刷新按钮 + 进度条移到 OverviewPage 顶部工具栏
+ * 左侧：产品名 + 副标题
+ * 右侧：导航菜单（总览 / 自选股）
  */
-import { Typography } from 'antd';
+import { Menu, Typography } from 'antd';
+import type { MenuProps } from 'antd';
+import { DashboardOutlined, StarOutlined } from '@ant-design/icons';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 const { Title, Text } = Typography;
 
+type MenuKey = '/' | '/watchlist';
+
 function AppHeader() {
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const menuItems: MenuProps['items'] = [
+    {
+      key: '/',
+      icon: <DashboardOutlined />,
+      label: '总览',
+    },
+    {
+      key: '/watchlist',
+      icon: <StarOutlined />,
+      label: '自选股',
+    },
+  ];
+
+  const selectedKey: MenuKey = location.pathname.startsWith('/watchlist')
+    ? '/watchlist'
+    : '/';
+
   return (
     <div
       style={{
         display: 'flex',
-        alignItems: 'baseline',
-        gap: 16,
+        alignItems: 'center',
+        justifyContent: 'space-between',
         height: '100%',
         color: '#fff',
       }}
     >
-      <Title level={4} style={{ color: '#fff', margin: 0 }}>
-        A股数据看板工具
-      </Title>
-      <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 12 }}>
-        盘后复盘 · 手动刷新
-      </Text>
+      {/* 左侧品牌区 */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          gap: 16,
+        }}
+      >
+        <Title level={4} style={{ color: '#fff', margin: 0 }}>
+          A股数据看板工具
+        </Title>
+        <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 12 }}>
+          盘后复盘 · 手动刷新
+        </Text>
+      </div>
+
+      {/* 右侧导航菜单 */}
+      <Menu
+        mode="horizontal"
+        theme="dark"
+        selectedKeys={[selectedKey]}
+        items={menuItems}
+        onClick={({ key }) => navigate(key)}
+        style={{
+          background: 'transparent',
+          borderBottom: 'none',
+          minWidth: 200,
+        }}
+      />
     </div>
   );
 }

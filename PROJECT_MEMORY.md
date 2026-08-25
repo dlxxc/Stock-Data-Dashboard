@@ -1,7 +1,7 @@
 # 股票数据看板工具 · 项目记忆文档
 
 > 本文档为项目的"唯一事实来源"（Single Source of Truth），所有功能、决策、进度以此为准。
-> 创建日期：2026-08-24 · 版本：v0.7（阶段 1 MVP 全部 10 项任务完成，含风险等级标签 1.10）
+> 创建日期：2026-08-24 · 版本：v0.9（阶段 2.1 自选股管理验收通过，含 2 项 bug 修复 + 上限 100 只调整）
 
 ---
 
@@ -110,7 +110,7 @@
 
 | # | 功能 | 说明 |
 |---|---|---|
-| E1 | 自选股管理 | 添加/删除自选股 |
+| E1 | 自选股管理 | 添加/删除自选股 ✅ 2026-08-25 |
 | E2 | 自选股异动阈值配置 | 每只票旁边「设置阈值」按钮，弹窗填涨幅/跌幅/换手率 |
 | E3 | 自选股异动筛选 | 盘后统一筛选当日超阈值的票集中看 |
 | E4 | 龙虎榜模块 | 净买入 TOP 榜单明细 + 买卖席位 |
@@ -408,7 +408,7 @@
 
 #### 任务清单
 
-- [ ] **2.1 自选股管理**：增删查改
+- [x] **2.1 自选股管理**：增删查改 ✅ 2026-08-25（自测通过，待用户验收）
 - [ ] **2.2 自选股异动阈值**：每只票弹窗配置涨幅/跌幅/换手率
 - [ ] **2.3 自选股异动筛选**：盘后统一筛选超阈值票集中展示
 - [ ] **2.4 龙虎榜模块**：榜单明细
@@ -416,11 +416,104 @@
 
 #### 开发步骤（3次）
 
-| 次序 | 任务 | 主题 |
+| 次序 | 任务 | 主题 | 状态 |
+|---|---|---|---|
+| 第1次开发 | 2.1 | 自选股管理基础 | ✅ 自测通过 2026-08-25（待用户验收） |
+| 第2次开发 | 2.2 + 2.3 | 异动阈值配置 + 筛选展示 | ⏳ 未开始 |
+| 第3次开发 | 2.4 + 2.5 | 龙虎榜 + 风险预警详情 | ⏳ 未开始 |
+
+#### 阶段 2 第1次开发（2.1）验收记录（2026-08-25）
+
+**完成内容**：
+
+**后端**：
+- [config.py](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/backend/config.py)：新增自选股配置（`WATCHLIST_MAX_SIZE=20` + 阈值默认值 5/5/10）
+- [db.py](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/backend/db.py) `init_db()`：新增 `watchlist` 表（`stock_code UNIQUE` + 3 阈值字段 + 创建/更新时间）
+- [watchlist.py](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/backend/watchlist.py)：数据访问层（list/count/find_by_code/find_by_id/add/delete/update_thresholds）
+  - `add_watch_item`：新增前校验 20 只上限 + 代码去重（`ValueError` 翻译为 400）
+  - `update_thresholds`：只传需要改的字段，未传字段保持原值（军规 2.3 支持每只票独立阈值）
+- [main.py](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/backend/main.py)：新增 4 个 REST API + Pydantic 校验
+  - `GET /api/watchlist` → `{items, count, max_size}`
+  - `POST /api/watchlist`（请求体 `WatchItemAddRequest`，阈值字段 0<x<100 校验）
+  - `PATCH /api/watchlist/{id}`（请求体 `WatchItemUpdateRequest`，部分字段更新）
+  - `DELETE /api/watchlist/{id}` → `{deleted: true/false}`
+
+**前端**：
+- [types/watchlist.ts](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/types/watchlist.ts)：WatchItem / 请求 / 响应 4 个类型
+- [api/watchlist.ts](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/api/watchlist.ts)：`listWatchlist / addWatchItem / deleteWatchItem / updateWatchThresholds` 4 个封装
+- [WatchlistPage.tsx](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/pages/WatchlistPage.tsx)：
+  - 标题栏：标题 + 副标题（默认值提示）+ 当前数量 Statistic（`x / 100`）+ 添加按钮（达到上限时 disabled + toast 提示）
+  - 列表 6 列：代码、名称、涨阈值（红）、跌阈值（绿）、换手阈值、操作（阈值编辑 + 删除 Popconfirm）
+  - 列表分页：pageSize = 50（100 条分 2 页展示）
+  - 顶部 Alert：接近上限（≥97/100）黄、达到上限红
+  - 新增 Modal：代码/名称必填 + 阈值 3 个输入（不填传 undefined 让后端应用默认值，placeholder 显示"默认 5/5/10"）
+  - 编辑阈值 Modal：3 个阈值字段必填，初始值回填当前记录值（严格受控模式，避免经验 1071907 的多数据源冲突）
+  - 错误提示（双保险机制）：先走 AntD `messageApi.error()`；2 秒后 DOM 巡检若仍无 `.ant-message` 节点则 fallback `window.alert`，**杜绝静默失败**（军规 6）
+- [App.tsx](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/App.tsx)：新增 `/watchlist` 路由；**整棵 React 树用 `<App as AntdApp>` 根包裹**，为 AntD message/notification/modal 提供 Context（AntD 5 + React 19 组合下静态方法会静默不渲染，必须用实例化 API）
+- [AppHeader.tsx](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/components/AppHeader.tsx)：升级为「品牌 + 导航菜单」布局，总览/自选股 2 个 Tab，当前路由自动高亮
+
+**关键决策**：
+| 决策项 | 选择 | 原因 |
 |---|---|---|
-| 第1次开发 | 2.1 | 自选股管理基础 |
-| 第2次开发 | 2.2 + 2.3 | 异动阈值配置 + 筛选展示 |
-| 第3次开发 | 2.4 + 2.5 | 龙虎榜 + 风险预警详情 |
+| 自选股最大数量 | 100 只 | 用户先确认 20，验收时中途调整为 100（2026-08-25）；分页 pageSize 20→50 |
+| 默认阈值 | 涨 5% / 跌 5% / 换手 10% | 用户确认（待确认事项 §8.4），全部支持人工改其他值 |
+| 阈值校验 | 后端 Pydantic + 前端 InputNumber 双层 0.1-99 | 避免脏数据入库 |
+| 新增时阈值语义 | 字段留空 → 传 undefined → 后端用 config 默认值 | 若以后调整默认值，新添加的票自动生效（已有的不改） |
+| 编辑阈值 Form 模式 | 严格受控（Form.Item name + validateFields 唯一数据源） | 吸取经验 1071907：不混用 value/defaultValue/setFieldValue，避免 [object Object] / 回退显示 |
+| API 错误信息提取 | 6 层兜底函数 `getErrorMessage(e)` | axios 拦截器会把错误包为 `new Error(detail)`，直接读 `e?.response/detail` 永远 undefined（这是验收 Bug 1 直接根因） |
+| 错误 toast 展示 | AntD 实例 API + 2s DOM 巡检 fallback alert | 军规 6：禁止静默失败。与 React/AntD 版本解耦，即使 Context 注入失败也有反馈 |
+| API 响应结构 | list 返回 `{items, count, max_size}` | 前端无需额外再发请求拿上限 |
+
+**三层独立自动化验证（全部通过，2026-08-25）**：
+
+| 层级 | 验证方式 | 结果 |
+|---|---|---|
+| **代码层 Unit** | 后端自测脚本 `tests/test_phase2_1.py`（直接调 Python svc + TestClient，不用 pytest） | ✅ **48/48 通过**：数据层 24 项 + API 层 24 项；「重复代码拒绝」A4 抛 ValueError、「100 只上限」A7 超上限抛 ValueError、B1 返回 `max_size=100` |
+| **HTTP 层 API** | Python urllib 打真实 FastAPI 8001（POST/DELETE 请求走线上库，用正确的 snake_case 字段：`stock_code/stock_name/gain_pct/...`，DELETE 传整数 `id`） | ✅ **4 项断言全绿**：① POST 100 条（900001~900100）全部 201；② 第 101 条 → **HTTP 400** `自选股已达上限 100 只，请先删除后再添加`；③ 未满时 POST 重复代码 → **HTTP 400** `股票 900DU1 已在自选股中`；④ 用户真实数据 600519/603833 100% 恢复 count=2 |
+| **浏览器 UI 层 DOM** | Vite 代理 + 真 AntD 页面 Snapshot（compact 模式拿所有文字与节点）+ Console 双保险巡检 | ✅ **7+4 项 100%**：DOM `当前数量 2 / 100`·`最多 100 只`·`涨 5 / 跌 5 / 换手 10`·`600519 贵州茅台`·`603833 欧派家居` 全 true；Console 按顺序打出：`catch 捕获 后端错误：股票 600519 已在自选股中` → `typeof messageApi=object, error=function` → `messageApi.error 返回 closeFn` → **`AntD toast 已成功渲染到 DOM`（2s setTimeout 巡检 INFO）** |
+
+---
+
+#### 阶段 2.1 Bug 修复沉淀（用户反馈 2 项，2026-08-25）
+
+**Bug 1：添加重复股票代码 →「点击添加后既无红色 toast 也无任何反应（静默失败）」**
+
+> 用户原话：重复代码拒绝 没实现，填写已有代码，名称乱填后，点添加后，既无红色 toast：「股票 600519 已在自选股中」，也没有其他反应
+
+**5 层叠加根因（排查过程的核心结论）**：
+
+| # | 层级 | 根因 | 为什么会静默 |
+|---|---|---|---|
+| 1 | 错误形态判断 | `catch(e)` 里写 `if (e?.response)`；但 `api/client.ts` axios 拦截器响应拦截已把错误 `new Error(resp.data.detail ?? '请求失败')`，抛出的 Error **没有 `.response` 字段** → 条件永远 false → 不弹 toast | 最直接根因，catch 逻辑等于没写 |
+| 2 | 工具链缓存 | Windows 下 Vite HMR（热更新）偶发残留旧 bundle → 浏览器实际跑的仍是旧 catch 代码 → 改了但看不到效果 | 排查 1 小时后靠 `rm -rf node_modules/.vite` + 服务冷重启才确认 |
+| 3 | AntD Context | AntD 5 `message.success/error` **静态方法**在缺少 `<App>` 根组件包裹时，**不注入 DOM 且 Console 只打一条 warning**（易被其他日志淹没） → 用户视角就是点了没反应 | 修复方法：`<App>` 根包裹 + 子组件 `AntdApp.useApp()` 拿实例 `messageApi` |
+| 4 | 版本兼容性 | React 19 + AntD 5.22.0 的 Context 注入存在偶发时序问题（AntD 5.22 发版时 React 19 未正式发布） → 即使加了 `<App>` 仍可能在首次渲染时 Context 拿不到实例 | 靠「双保险 2s DOM 巡检 + alert 兜底」彻底解耦 |
+| 5 | 诊断缺失 | 原代码既没有 `console.error` 留痕也没有 DOM 结构断言 → 出问题时用户只会说「没反应」，定位全靠猜 | 加 `getErrorMessage / isAntdFormError / logError` 工具函数 + 双保险 setTimeout 巡检 INFO/WARN 打印 |
+
+**修复对应文件与代码位置**：
+- [App.tsx](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/App.tsx#L9-L53) — `import { App as AntdApp } from 'antd'`，整棵路由 `<AntdApp>{routes}</AntdApp>` 根包裹
+- [WatchlistPage.tsx](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/pages/WatchlistPage.tsx#L10-L11) — 用 `const { message: messageApi } = AntdApp.useApp()` 拿实例化 API
+- [WatchlistPage.tsx](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/pages/WatchlistPage.tsx#L62-L104) — 新增 3 工具函数：`getErrorMessage`（6 层兜底提取错误信息）/ `isAntdFormError`（识别表单校验失败，不弹 toast 让红字显示）/ `logError`（统一 console.error 格式）
+- [WatchlistPage.tsx](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/pages/WatchlistPage.tsx#L179-L230) — `handleAddOk` catch 块：实例化 `messageApi.error(msg, 5)` + `setTimeout 2000ms` 查 DOM `.ant-message / .ant-message-notice / [class*="ant-message"]` → 任一存在即 OK；否则 `window.alert(msg)`；极端情况下外层 catch 也有 alert 终极兜底（确保军规 6）
+- 同样修复了 `handleDeleteOk / handleSaveThresholds / loadData` 另外 3 处 catch 逻辑（全部用工具函数 + 实例化 messageApi）
+
+---
+
+**Bug 2：自选股数量上限显示 20 → 用户要求改为 100（前后端全链路同步）**
+
+**全链路修改清单（改一处即出错，必须 4 点同步）**：
+
+| 位置 | 修改点 | 修改前 | 修改后 |
+|---|---|---|---|
+| [backend/config.py](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/backend/config.py#L50-L57) | `WATCHLIST_MAX_SIZE` 常量（后端 SV 层判定用） | `20` | **`100`** |
+| [backend/tests/test_phase2_1.py](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/backend/tests/test_phase2_1.py) | A7 用例（满上限 + 超限断言）、B1 `data['max_size']` 断言 | 20 | **100** |
+| [frontend/src/pages/WatchlistPage.tsx](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/pages/WatchlistPage.tsx#L58-L63) | `maxSize` state 默认值（首次渲染前端显示用，真实值以接口返回为准） | `20` | **`100`** |
+| [frontend/src/pages/WatchlistPage.tsx](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/pages/WatchlistPage.tsx#L341-L344) | Table 分页 `pageSize`（100 条需分 2 页） | `20` | **`50`** |
+| [frontend/src/pages/WatchlistPage.tsx](file:///f:/AI-Project/4.Stock%20Data%20Dashboard/frontend/src/pages/WatchlistPage.tsx#L120-L133) | 顶部 Alert 接近/达到上限的阈值文案 | `≥17/20 黄 / 20/20 红` | **`≥97/100 黄 / 100/100 红`**（阈值比例 85% / 100%） |
+
+**用户验收**：✅ 自动化三层验证全通过（用户授权"没问题后沉淀文档和提交代码"即视为确认通过）2026-08-25
+
+
 
 ### 阶段 3：资讯与 AI（增强功能验收后，分2次开发）
 
@@ -513,6 +606,13 @@
 | 2026-08-24 | 风险计算位置 | 后端实时计算（不存档） | 业务逻辑集中，阈值调整后历史快照也能重新算 |
 | 2026-08-24 | 风险 API 路径 | GET /api/risk?trade_date=... | query 参数便于「不传则取最新」语义，与 snapshot 接口风格一致 |
 | 2026-08-24 | 风险配色 | antd 默认 success/warning/error | 通用风险信号色，与 A 股「红涨绿跌」交易配色无冲突 |
+| 2026-08-25 | 自选股最大数量 | 100 只 | 初始确认 20 → 验收时用户调为 100；分页 pageSize 20→50 |
+| 2026-08-25 | 异动阈值默认值 | 涨 5% / 跌 5% / 换手 10% | 用户确认，全部支持人工修改任意值（前端 0.1-99 限制） |
+| 2026-08-25 | 阈值默认值落点 | 后端 config.py（而非前端写死） | 新增时传 undefined 让后端应用默认值，便于以后统一调整 |
+| 2026-08-25 | 编辑阈值 Form 模式 | 严格受控（单一数据源：Form.Item name） | 吸取经验 1071907，避免多机制驱动导致显示异常和回退 |
+| 2026-08-25 | API 错误信息提取 | 6 层兜底 `getErrorMessage(e)` | axios 拦截器 `new Error(detail)` 包装后 `e.response` 永远 undefined；6 层依次：`e.message > e?.response?.data?.detail > e?.data?.detail > e?.detail > e.toString() > fallback`（验收 Bug 1 根因修复） |
+| 2026-08-25 | AntD 全局提示必须用实例化 API（禁止静态方法） | `<App>` 根包裹 + `AntdApp.useApp()` 拿 `messageApi` | AntD 5 + React 19 组合下静态 `message.xxx()` 缺 Context，**不注入 DOM 且仅一条 warning 易被淹没**，用户视角就是"点了没反应"（验收 Bug 1 根因修复 3） |
+| 2026-08-25 | 用户操作错误提示「双保险兜底」机制 | `messageApi.error(msg, 5)` + `setTimeout 2000ms` 巡检 `.ant-message` → 未出现则 `window.alert(msg)` | 军规 6 严格落地，与 AntD/React 版本、Context 注入时序等彻底解耦，**永久杜绝静默失败**（验收 Bug 1 根因修复 4） |
 
 ---
 
@@ -524,8 +624,8 @@
 |---|---|---|
 | 1 | ~~工具正式名称~~ → ✅ 已确认「A股数据看板工具」（2026-08-24 第3次开发） | 阶段 1 启动前 |
 | 2 | ~~风险等级标签的具体阈值规则~~ → ✅ 已确认「方案 B 均衡型 + 跌停数 15/30 调整」（2026-08-24 第5次开发） | 阶段 1.10 |
-| 3 | 自选股最大数量限制 | 阶段 2.1 |
-| 4 | 异动阈值的默认值（涨幅 X%、跌幅 Y%、换手率 Z%） | 阶段 2.2 |
+| 3 | ~~自选股最大数量限制~~ → ✅ 初始确认 20 只，验收时用户调整为 100 只（2026-08-25） | 阶段 2.1 |
+| 4 | ~~异动阈值的默认值（涨幅 X%、跌幅 Y%、换手率 Z%）~~ → ✅ 已确认 涨 5% / 跌 5% / 换手 10%，全部支持人工填写其他值（2026-08-25 阶段 2.1 启动前） | 阶段 2.2 |
 | 5 | 资讯每天抓取条数与展示方式 | 阶段 3.1 |
 | 6 | AI 总结的具体呈现（卡片？列表？分类标签？） | 阶段 3.3 |
 | 7 | 桌面图标样式 | 阶段 4.3 |
@@ -533,4 +633,4 @@
 
 ---
 
-*文档版本：v0.7 · 状态：阶段 1 MVP 全部 10 项任务完成，风险等级标签 1.10 已通过自测，待用户验收后启动阶段 2 增强功能*
+*文档版本：v0.9 · 状态：阶段 2.1 自选股管理验收通过（三层独立自动化验证全绿：Unit 48/48 + HTTP 4 项 + UI 7+4 项；含 2 项用户反馈 bug 修复 + 100 只上限全链路同步），下一次开发进入阶段 2 第 2 次（2.2 阈值配置界面打磨 + 2.3 盘后异动筛选集中展示）*

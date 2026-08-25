@@ -46,3 +46,12 @@ SNAPSHOT_RETENTION_DAYS = 30
 # ========== 交易日处理 ==========
 # A股市场固定休市日（周6、周日）；节假日需 akshare 交易日历判断
 WEEKEND_DAYS = {5, 6}  # Python weekday(): 0=周一 ... 5=周六, 6=周日
+
+# ========== 自选股配置（阶段 2）==========
+# 自选股最大数量限制（用户确认：100 只）
+WATCHLIST_MAX_SIZE = 100
+
+# 异动阈值默认值（用户确认：涨幅 5% / 跌幅 5% / 换手率 10%）
+WATCHLIST_DEFAULT_GAIN_PCT = 5.0      # 涨幅阈值 %
+WATCHLIST_DEFAULT_LOSS_PCT = 5.0      # 跌幅阈值 %（绝对值）
+WATCHLIST_DEFAULT_TURNOVER_PCT = 10.0  # 换手率阈值 %

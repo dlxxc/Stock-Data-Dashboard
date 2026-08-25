@@ -20,6 +20,7 @@ from typing import AsyncGenerator, AsyncIterator
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from config import ALL_MODULES, HOST, PORT
@@ -32,6 +33,8 @@ from snapshot import (
     list_available_dates,
     save_snapshot,
 )
+import watchlist as watchlist_svc
+from config import WATCHLIST_MAX_SIZE
 
 # ========== 日志配置 ==========
 logging.basicConfig(
@@ -276,6 +279,93 @@ def get_risk(trade_date: str | None = None) -> dict:
 
     risk = calculate_risk(snap["modules"])
     return {"trade_date": snap["trade_date"], **risk}
+
+
+# ========== 自选股接口（阶段 2.1）==========
+
+class WatchItemAddRequest(BaseModel):
+    """新增自选股请求体。"""
+    stock_code: str = Field(..., description="股票代码，如 600519 或 sh600519")
+    stock_name: str = Field(..., description="股票名称")
+    gain_pct: float | None = Field(None, gt=0, lt=100, description="涨幅阈值%，默认5")
+    loss_pct: float | None = Field(None, gt=0, lt=100, description="跌幅阈值%（绝对值），默认5")
+    turnover_pct: float | None = Field(None, gt=0, lt=100, description="换手率阈值%，默认10")
+
+
+class WatchItemUpdateRequest(BaseModel):
+    """修改阈值请求体（只传要改的字段）。"""
+    gain_pct: float | None = Field(None, gt=0, lt=100)
+    loss_pct: float | None = Field(None, gt=0, lt=100)
+    turnover_pct: float | None = Field(None, gt=0, lt=100)
+
+
+@app.get("/api/watchlist")
+def api_list_watchlist() -> dict:
+    """列出全部自选股 + 当前数量/上限。
+
+    Returns:
+        {
+            "items": [{id, stock_code, stock_name, gain_pct, loss_pct, turnover_pct, ...}],
+            "count": 10,
+            "max_size": 20
+        }
+    """
+    items = watchlist_svc.list_watchlist()
+    return {
+        "items": [it.to_dict() for it in items],
+        "count": len(items),
+        "max_size": WATCHLIST_MAX_SIZE,
+    }
+
+
+@app.post("/api/watchlist", status_code=201)
+def api_add_watch_item(req: WatchItemAddRequest) -> dict:
+    """新增自选股。
+
+    Raises:
+        HTTPException 400: 已达上限 或 重复代码
+    """
+    try:
+        item = watchlist_svc.add_watch_item(
+            stock_code=req.stock_code.strip(),
+            stock_name=req.stock_name.strip(),
+            gain_pct=req.gain_pct,
+            loss_pct=req.loss_pct,
+            turnover_pct=req.turnover_pct,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return item.to_dict()
+
+
+@app.delete("/api/watchlist/{item_id}")
+def api_delete_watch_item(item_id: int) -> dict:
+    """删除指定自选股。
+
+    Returns:
+        {"deleted": true} 或 {"deleted": false}（id 不存在）
+    """
+    deleted = watchlist_svc.delete_watch_item(item_id)
+    return {"deleted": deleted}
+
+
+@app.patch("/api/watchlist/{item_id}")
+def api_update_watch_thresholds(item_id: int, req: WatchItemUpdateRequest) -> dict:
+    """修改指定自选股的阈值。
+
+    Raises:
+        HTTPException 404: id 不存在
+    """
+    try:
+        item = watchlist_svc.update_thresholds(
+            item_id=item_id,
+            gain_pct=req.gain_pct,
+            loss_pct=req.loss_pct,
+            turnover_pct=req.turnover_pct,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return item.to_dict()
 
 
 # ========== 入口 ==========
