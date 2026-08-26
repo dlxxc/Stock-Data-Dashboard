@@ -111,6 +111,21 @@ def init_db() -> None:
             )
         """)
 
+        # AI 总结缓存表（阶段 3.3）
+        # 按交易日缓存 AI 生成的资讯总结，避免重复调 GLM 浪费额度
+        # status: ok / failed / generating
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ai_summaries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_date TEXT NOT NULL UNIQUE,
+                overview TEXT,
+                sectors_json TEXT,
+                status TEXT DEFAULT 'ok',
+                error_msg TEXT,
+                generated_at TEXT DEFAULT (datetime('now', 'localtime'))
+            )
+        """)
+
         # 清理过期快照（保留 SNAPSHOT_RETENTION_DAYS 天）
         from config import SNAPSHOT_RETENTION_DAYS
         conn.execute(

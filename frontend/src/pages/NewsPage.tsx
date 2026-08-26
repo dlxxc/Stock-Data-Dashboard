@@ -18,6 +18,7 @@ import { useNavigate } from 'react-router-dom';
 import { getNews } from '@/api/news';
 import HistoryDatePicker from '@/components/dashboard/HistoryDatePicker';
 import AiSettings from '@/components/dashboard/AiSettings';
+import AiSummary from '@/components/dashboard/AiSummary';
 import type { NewsArticle, NewsResponse } from '@/types/news';
 
 const { Title, Text } = Typography;
@@ -36,6 +37,7 @@ export default function NewsPage() {
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [data, setData] = useState<NewsResponse | null>(null);
   const [historyDate, setHistoryDate] = useState<string | null>(null);
+  const [highlightIndices, setHighlightIndices] = useState<Set<number>>(new Set());
 
   // ========== 加载数据 ==========
 
@@ -80,6 +82,10 @@ export default function NewsPage() {
 
   const handleBackToOverview = () => {
     navigate('/');
+  };
+
+  const handleSectorSelect = (indices: number[]) => {
+    setHighlightIndices(new Set(indices));
   };
 
   // ========== 表格列定义 ==========
@@ -251,6 +257,8 @@ export default function NewsPage() {
     <div>
       {renderToolbar()}
 
+      <AiSummary tradeDate={historyDate} onSectorSelect={handleSectorSelect} />
+
       <Card
         size="small"
         title={
@@ -268,6 +276,9 @@ export default function NewsPage() {
           dataSource={data.articles}
           rowKey={(_, index) => `news-${index}`}
           size="small"
+          rowClassName={(_, index) =>
+            highlightIndices.has(index) ? 'ai-highlight-row' : ''
+          }
           pagination={{
             pageSize: 20,
             showSizeChanger: false,

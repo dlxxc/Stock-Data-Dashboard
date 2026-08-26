@@ -854,6 +854,38 @@ def clear_ai_config() -> dict:
     return {"ok": True, "has_key": False, "masked_key": ""}
 
 
+# ========== AI 总结（阶段 3.3）==========
+@app.get("/api/ai/summary")
+def get_ai_summary(trade_date: str | None = None) -> dict:
+    """读取缓存的 AI 总结（不触发生成）。
+
+    Returns:
+        status: not_generated / ok / failed / need_key / no_news / generating
+    """
+    from ai_summary import get_cached_summary
+
+    return get_cached_summary(trade_date)
+
+
+@app.post("/api/ai/summary")
+def generate_ai_summary(req: dict | None = None) -> dict:
+    """生成或强制重新生成 AI 总结。
+
+    Body:
+        {"trade_date": "2026-08-26", "force": false}
+
+    Returns:
+        结构化 AI 总结或状态信息
+    """
+    from ai_summary import generate_summary
+
+    body = req or {}
+    trade_date = body.get("trade_date")
+    force = bool(body.get("force", False))
+
+    return generate_summary(trade_date=trade_date, force=force)
+
+
 # ========== 入口 ==========
 if __name__ == "__main__":
     import uvicorn

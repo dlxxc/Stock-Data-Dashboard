@@ -23,3 +23,8 @@ body {
   font-family: 'Fira Code', 'JetBrains Mono', Consolas, monospace;
   font-variant-numeric: tabular-nums;
 }
+
+/* AI 总结板块联动高亮行 */
+.ai-highlight-row > td {
+  background-color: #e6f4ff !important;
+}
