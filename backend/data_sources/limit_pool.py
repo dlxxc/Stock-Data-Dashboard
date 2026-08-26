@@ -5,10 +5,13 @@ akshare 接口：
 - stock_zt_pool_em(date)：涨停池
 - stock_zt_pool_dtgc_em(date)：跌停池
 """
+import logging
 from datetime import datetime
 from typing import Any
 
 import akshare as ak
+
+logger = logging.getLogger(__name__)
 
 
 def fetch(trade_date: str) -> dict[str, Any]:
@@ -46,7 +49,10 @@ def fetch(trade_date: str) -> dict[str, Any]:
     try:
         df_up = ak.stock_zt_pool_em(date=date_str)
     except Exception as e:
-        raise RuntimeError(f"涨停池拉取失败: {e}") from e
+        # 接口异常（反爬/限流/盘前），降级为涨停池空，而非让整个模块 failed
+        #（与 dragon_tiger 容错口径一致：盘前无涨停属正常业务态，前端显示「无涨停股」）
+        logger.warning(f"涨停池接口异常，降级为空池: {e}")
+        df_up = None
 
     if df_up is not None and not df_up.empty:
         up_stocks = []
@@ -72,14 +78,15 @@ def fetch(trade_date: str) -> dict[str, Any]:
                 "industry": str(row.get("所属行业", "")),
             })
         result["limit_up"] = {"total": len(up_stocks), "stocks": up_stocks}
-    else:
-        raise RuntimeError("涨停池返回空数据（可能非交易日或接口异常）")
+    # else: 涨停池为空（盘前/非交易日/当日无涨停）→ 返回空数组而非报错，
+    #       让前端显示「暂无涨停」而非「刷新失败」
 
     # ---- 跌停池 ----
     try:
         df_down = ak.stock_zt_pool_dtgc_em(date=date_str)
     except Exception as e:
-        raise RuntimeError(f"跌停池拉取失败: {e}") from e
+        logger.warning(f"跌停池接口异常，降级为空池: {e}")
+        df_down = None
 
     if df_down is not None and not df_down.empty:
         down_stocks = []

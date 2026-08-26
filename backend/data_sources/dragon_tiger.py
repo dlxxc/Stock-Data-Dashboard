@@ -119,7 +119,11 @@ def _find_col(columns, *, zh: Tuple[str, ...], en: Tuple[str, ...] = ()) -> Opti
 
 # ========== 数据源 1：主榜单 stock_lhb_detail_em ==========
 def _fetch_detail(trade_date: str) -> pd.DataFrame:
-    """拉取主榜单 DataFrame（指定日期的上榜股票清单）。"""
+    """拉取主榜单 DataFrame（指定日期的上榜股票清单）。
+    
+    Returns:
+        DataFrame 或 None（盘前/非交易日/接口异常时返回 None）
+    """
     import akshare as ak
 
     date_str = trade_date.replace("-", "")
@@ -127,7 +131,17 @@ def _fetch_detail(trade_date: str) -> pd.DataFrame:
     def _call():
         return ak.stock_lhb_detail_em(start_date=date_str, end_date=date_str)
 
-    return _retry(_call, max_attempts=3, base_sleep_s=1.5, tag="lhb_detail")
+    try:
+        return _retry(_call, max_attempts=3, base_sleep_s=1.5, tag="lhb_detail")
+    except Exception as e:
+        # akshare 接口失败（常见：盘前数据未更新返回 'NoneType' object is not subscriptable）
+        # 返回 None 让上层返回空榜单，而非抛异常触发 status=failed
+        err_msg = str(e)
+        if "NoneType" in err_msg or "subscript" in err_msg:
+            logger.info(f"[dragon_tiger] 主榜单接口返回异常（盘前或非交易日）: {err_msg[:80]}")
+        else:
+            logger.warning(f"[dragon_tiger] 主榜单接口失败: {err_msg[:100]}")
+        return None
 
 
 def _parse_detail(df: pd.DataFrame) -> List[Dict[str, Any]]:
@@ -332,13 +346,15 @@ def fetch(trade_date: str) -> Dict[str, Any]:
     # 阶段 1：主榜单
     logger.info(f"[dragon_tiger] 阶段1：主榜单 stock_lhb_detail_em({date_ymd})")
     df = _fetch_detail(trade_date)
-    if df is None or df.empty:
-        # 主榜单为空：可能非交易日 / 当日无票上榜 / 盘前未更新（17:00+ 才更新）
-        # 选择抛异常让外层存档 status=failed，让用户感知「拉取失败，点此重试」
-        # 而不是返回空榜单误导用户以为「当日无票上榜」（这可能是真的，也可能是接口问题）
-        raise RuntimeError(
-            f"龙虎榜主榜单返回空（{trade_date} 可能非交易日 / 接口异常 / 盘前未更新，17:00 后再试）"
-        )
+
+    # 防御：_fetch_detail 返回 None 或异常对象 → 返回空榜单
+    if df is None or not hasattr(df, 'empty') or not hasattr(df, 'iterrows'):
+        logger.info(f"[dragon_tiger] 阶段1：主榜单返回 None/异常对象（盘前或非交易日），返回空榜单")
+        return {"trade_date": trade_date, "total": 0, "stocks": []}
+
+    if df.empty:
+        logger.info(f"[dragon_tiger] 阶段1：主榜单返回空 DataFrame（盘前或非交易日），返回空榜单")
+        return {"trade_date": trade_date, "total": 0, "stocks": []}
 
     stocks = _parse_detail(df)
     logger.info(f"[dragon_tiger] 阶段1：主榜单解析到 {len(stocks)} 只上榜票")
