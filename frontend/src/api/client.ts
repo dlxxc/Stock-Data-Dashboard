@@ -18,9 +18,9 @@ const client: AxiosInstance = axios.create({
 client.interceptors.response.use(
   (response) => response,
   (error) => {
-    // 网络层错误（连不上后端）
+    // 网络层错误（连不上后端；注意生成类接口超时会更长，此处不覆盖 timeout）
     if (!error.response) {
-      return Promise.reject(new Error('无法连接后端服务，请确认 8001 端口已启动'));
+      return Promise.reject(new Error('无法连接后端服务，请确认 8003 端口已启动'));
     }
     // HTTP 错误（4xx / 5xx）：提取后端 detail，兼容字符串 / 数组 / 对象
     const status = error.response?.status;

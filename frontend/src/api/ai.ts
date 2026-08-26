@@ -26,8 +26,10 @@ export const getAiSummary = async (tradeDate?: string): Promise<AISummaryRespons
   return data;
 };
 
-/** 生成或强制重新生成 AI 总结 */
+/** 生成或强制重新生成 AI 总结（GLM 调用耗时较长，需覆盖默认 10s 超时） */
 export const generateAiSummary = async (payload: AiSummaryGeneratePayload = {}): Promise<AISummaryResponse> => {
-  const { data } = await client.post<AISummaryResponse>("/ai/summary", payload);
+  const { data } = await client.post<AISummaryResponse>("/ai/summary", payload, {
+    timeout: 120000,
+  });
   return data;
 };
