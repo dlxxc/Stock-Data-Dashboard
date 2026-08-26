@@ -69,7 +69,7 @@ export async function refreshData(callbacks: RefreshCallbacks): Promise<void> {
     });
   } catch (e) {
     callbacks.onError?.(
-      e instanceof Error ? e : new Error('无法连接后端服务，请确认 8000 端口已启动'),
+      e instanceof Error ? e : new Error('无法连接后端服务，请确认 backend 服务（端口 8003）已启动'),
     );
     return;
   }

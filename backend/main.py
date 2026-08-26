@@ -8,7 +8,7 @@
 - GET  /api/snapshot/dates   列出所有有存档的日期
 - GET  /api/risk?date=...    计算风险等级（默认最新快照）
 
-启动：uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+启动：uvicorn main:app --host 127.0.0.1 --port 8003 --reload
 """
 import asyncio
 import json
@@ -18,12 +18,14 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import AsyncGenerator, AsyncIterator, Dict, List
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
-from config import ALL_MODULES, HOST, PORT
+from config import ALL_MODULES, HOST, PORT, PROJECT_ROOT
 from data_sources import FETCHERS
 from db import init_db
 from risk import calculate_risk
@@ -69,7 +71,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# 允许前端跨域（开发期 Vite 跑在 5173/5174/5175 等端口）
+# 允许前端跨域（开发期 Vite 跑在 5173/5174/5175 等端口）。
+# 生产交付模式通过 start.bat 由后端同源托管 frontend/dist（http://127.0.0.1:8003），
+# 浏览器对后端为同源访问，不经 CORS，故无需在此加入 8003。
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -884,6 +888,26 @@ def generate_ai_summary(req: dict | None = None) -> dict:
     force = bool(body.get("force", False))
 
     return generate_summary(trade_date=trade_date, force=force)
+
+
+# ========== 前端静态托管（bat+浏览器方案）==========
+# 托管 frontend/dist 构建产物，浏览器直连 127.0.0.1:8003 同源访问
+# 注意：必须在所有 /api/* 路由注册之后挂载，避免吞掉 API 请求
+_DIST = PROJECT_ROOT / "frontend" / "dist"
+if _DIST.is_dir():
+    # 静态资源（js/css/图片等）走 StaticFiles
+    app.mount("/assets", StaticFiles(directory=_DIST / "assets"), name="assets")
+
+    @app.get("/{full_path:path}")
+    def spa_fallback(full_path: str, request: Request):
+        """SPA 路由回退：非 /api、非 /assets 的 GET 一律返回 index.html，交给前端路由"""
+        # 排除 API 与已挂载的 assets，避免误吞
+        if full_path.startswith("api") or full_path.startswith("assets"):
+            raise HTTPException(status_code=404, detail="Not Found")
+        index = _DIST / "index.html"
+        if not index.is_file():
+            raise HTTPException(status_code=404, detail="前端未构建，请先执行 pnpm build")
+        return FileResponse(index)
 
 
 # ========== 入口 ==========
