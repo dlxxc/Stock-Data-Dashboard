@@ -1,9 +1,11 @@
 @echo off
 setlocal
 
+set "ROOT=%~dp0"
 set "PORT=8003"
 set "URL=http://127.0.0.1:%PORT%/"
-set "BACKEND_DIR=%~dp0backend"
+set "BACKEND_DIR=%ROOT%backend"
+set "PYTHON=%ROOT%.venv\Scripts\python.exe"
 
 title A-Share Dashboard Launcher
 echo.
@@ -12,6 +14,7 @@ echo   A-Share Dashboard Launcher
 echo ============================================
 echo.
 
+if not exist "%PYTHON%" goto :NOVENV
 netstat -ano | findstr ":%PORT%" | findstr "LISTENING" >nul
 if not errorlevel 1 goto :PORTUSED
 
@@ -20,7 +23,7 @@ goto :START
 
 :NODIST
 echo [WARNING] frontend\dist\index.html not found.
-echo           Run 'pnpm build' in frontend first.
+echo           Run 'npm install' then 'npm run build' in frontend first.
 echo.
 
 :START
@@ -30,7 +33,7 @@ echo.
 start "" /min powershell -NoProfile -Command "Start-Sleep -Seconds 3; Start-Process '%URL%'"
 
 pushd "%BACKEND_DIR%"
-call ..\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port %PORT% --log-level info
+call "%PYTHON%" -m uvicorn main:app --host 127.0.0.1 --port %PORT% --log-level info
 set "UVICORN_EXIT=%errorlevel%"
 popd
 
@@ -39,6 +42,16 @@ echo [STOPPED] Backend exited with code %UVICORN_EXIT%.
 endlocal
 pause
 exit /b 0
+
+:NOVENV
+echo.
+echo [ERROR] Python virtualenv not found at .venv\Scripts\python.exe
+echo         Please follow the setup steps in README.md first.
+echo         e.g.:  python -m venv .venv
+echo                pip install -r backend\requirements.txt
+echo.
+pause
+exit /b 1
 
 :PORTUSED
 echo.
