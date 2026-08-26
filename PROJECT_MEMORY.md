@@ -730,7 +730,7 @@
 
 #### 任务清单
 
-- [ ] **3.1 资讯抓取**：东财接口（`stock_info_global` 等）
+- [x] **3.1 资讯抓取**：东财接口（`stock_info_global` 等）✅ 已完成
 - [ ] **3.2 AI API Key 配置入口**：首次启动填一次，存本地配置
 - [ ] **3.3 AI 总结**：按板块分类 + 一句话总结
 - [ ] **3.4 AI 失败兜底**：资讯列表照常，无 AI 总结栏
@@ -741,6 +741,40 @@
 |---|---|---|
 | 第1次开发 | 3.1 + 3.4前半部分 | 资讯抓取与展示（无 AI 版本可独立跑通） |
 | 第2次开发 | 3.2 + 3.3 + 3.4后半部分 | AI 本地配置 + 智能总结 + 失败兜底 |
+
+#### 阶段 3 第1次开发（3.1 资讯抓取）验收记录（2026-08-26）
+
+**交付内容**：资讯抓取 + 展示 + 历史回看 + 空数据兜底（用户已确认方案：主源东财 `stock_info_global_em` → 回退新浪 `stock_info_global_sina`，取 20 条，摘要+链接+时间展示）。
+
+**后端（5）**：
+- 新增 `data_sources/news.py`：东财主源 + 新浪回退双源容错，输出 20 条（标题/摘要/时间/链接）
+- `config.py`：`MODULE_NEWS` 加入 `ALL_MODULES`（排在 indices 之后）
+- `__init__.py`：`fetch_news` 注册到 FETCHERS
+- `main.py`：`GET /api/news?trade_date=`（历史回看 + 三层失败检测）
+- 新增 `tests/test_phase3_1.py`：自测 3/3 通过
+
+**前端（4）**：
+- 新增 `types/news.ts`、`api/news.ts`：类型 + API 封装
+- 新增 `pages/NewsPage.tsx`：表格（序号/标题可跳转/摘要/时间）+ 历史日期选择器 + 4 状态失败分支
+- `constants/modules.ts`、`App.tsx`、`AppHeader.tsx`：路由 + 导航 Tab「资讯」
+- TS 编译 0 错误
+
+**验收与 Bug 修复（3 项）**：
+1. 导航 4 Tab 折叠「...」→ 修复：[AppHeader.tsx] 改 `flex:1` + `justifyContent:flex-end` 自适应（原 `minWidth:260` 固定宽度致窗口缩小时折叠）
+2. 资讯标题点击无反应 → 空字符串 `""` 被当 truthy 显示链接图标但 `href=""` 无法跳转；修复链接判断 `record.url && record.url.trim() !== ''`；并改用 `window.open` 跳转（注：TRAE 内置浏览器有跳转限制，外部浏览器正常）
+3. 历史回看日期面板异常（两轮修复）：
+   - 首轮：月/年面板全显示「25」→ 根因 AntD5 `cellRender` 对日/月/年/十年共用回调，非 date 面板调 `current.date()` 返回当天日号
+   - 次轮：改返回 `undefined` 后月/年面板全空白 → **根因 AntD5.22 `cellRender` 返回 `undefined` 会被底层 rc-picker 解释为"清空单元格"**，而非"走默认渲染"
+   - 最终修复：[HistoryDatePicker.tsx] 非 date 面板优先返回 `info.originNode`（AntD 默认渲染节点），无则 fallback 自渲染 `month→MMM`、`year/decade→YYYY`；无效 current 返回 `info?.originNode ?? null`。硬刷新验证日/月/十年三面板均正常
+
+**三模块数据源容错加固（本阶段验收时暴露）**：
+- **indices（4大指数刷新失败）**：根因 akshare 新浪分页接口 `stock_zh_index_spot_sina` 被反爬返回 HTML（`Can not decode '<'`）且无兜底。修复三级容错：akshare → 新浪 hq.sinajs.cn 直连（带 Referer 稳定，盘前最新价 0 回退昨收）→ 东财 push2 直连
+- **limit_pool（涨停池盘前空报错）**：修复①空数据返回 `{total:0, stocks:[]}` 不报错；②接口异常降级为空池（与 dragon_tiger 口径统一）；result 已预初始化完整空结构
+- **dragon_tiger（盘前抛 `'NoneType' object is not subscriptable`）**：根因 akshare `stock_lhb_detail_em` 盘前（17:00前）返回异常对象。修复 `_fetch_detail` 内部捕获异常返回 None（不再 raise）→ fetch 收到 None 返回空榜单 `{trade_date, total:0, stocks:[]}`，前端显示「交易日 X 无龙虎榜数据」
+
+**最终验证**：真实触发 `/api/refresh` **7/7 模块全部 ok**（limit_pool/money_flow/sector_breadth/watchlist_quotes/dragon_tiger/indices/news），快照落库正确；浏览器总览页 4 大指数正常显示真实点位、涨停 13 家、跌停「无」，无红色报错。
+
+**笔记**：三模块（indices/limit_pool/dragon_tiger）均为「盘中有数据 / 盘前空」型模块，容错口径须统一为「空数据→空结构返回 + status=ok，前端显示空态」，避免工作日上午/非交易日刷出整模块 failed。
 
 ### 阶段 4：Tauri 打包（最终交付，分2次开发）
 
@@ -844,6 +878,15 @@
 | 2026-08-25 | 阶段2.5 进度条颜色 | 根据触发等级着色（绿/黄/红） | 与 RiskLabel 的 Tag 颜色一致，视觉预警清晰 |
 | 2026-08-25 | 阶段2.5 查看完整榜单 | 关闭 Drawer + `scrollIntoView` 滚动定位 | 点击后回到总览页对应模块，体验流畅 |
 | 2026-08-25 | 端口切换 8002→8003 | 8002 被僵尸进程占用（PID 10720 无法杀掉） | 清理 __pycache__ 后用 8003 重启；前端 Vite 代理已同步更新 |
+| 2026-08-26 | 资讯数据源 | 东财 `stock_info_global_em`（主）+ 新浪 `stock_info_global_sina`（回退） | 东财资讯稳定、字段含摘要链接；新浪兜底保证断网返回时不空 |
+| 2026-08-26 | 资讯展示 | 20 条表格：序号 + 标题(可跳转) + 摘要 + 发布时间 | 用户确认方案；历史日期选择器复用 HistoryDatePicker |
+| 2026-08-26 | 资讯页导航 Tab | 新增「资讯」Tab（FileTextOutlined），`/news` 路由 | 独立页面承载资讯，不挤占总览 |
+| 2026-08-26 | 导航自适应布局 | [AppHeader.tsx] `flex:1` + `justifyContent:flex-end` | 修复窗口缩小时 4 Tab 折叠「...」；原 `minWidth:260` 固定宽度 |
+| 2026-08-26 | 资讯链接跳转 | `window.open(url)` + 空 URL 不渲染图标 | 空字符串 `""` 被当 truthy 显示 `href=""` 无法跳转；TRAE 内置浏览器有限制，外部浏览器正常 |
+| 2026-08-26 | 指数数据源三级容错 | akshare 新浪分页 → 新浪 hq.sinajs.cn 直连(带 Referer) → 东财 push2 | akshare 分页被反爬返回 HTML；hq 直连稳定且盘前回退昨收；东财 push2 被限流作备 |
+| 2026-08-26 | 「盘前空」型模块容错口径 | 空数据 → 返回空结构 + status=ok，前端显示空态（不报 failed） | indices/limit_pool/dragon_tiger 均为盘中/盘后有数据、盘前空，统一口径避免工作日上午刷出整模块失败 |
+| 2026-08-26 | dragon_tiger 盘前异常兜底 | `_fetch_detail` 捕获异常返回 None（不 raise）→ fetch 返回空榜单 | akshare `stock_lhb_detail_em` 盘前返回异常对象致 `'NoneType' object is not subscriptable`；空榜单前端显示「无龙虎榜数据」 |
+| 2026-08-26 | limit_pool 接口异常兜底 | 涨停/跌停接口异常时降级为空池（logger.warning），不 raise | 与 dragon_tiger 口径统一；盘前接口反爬/限流不再让模块 failed |
 
 ---
 
@@ -857,11 +900,11 @@
 | 2 | ~~风险等级标签的具体阈值规则~~ → ✅ 已确认「方案 B 均衡型 + 跌停数 15/30 调整」（2026-08-24 第5次开发） | 阶段 1.10 |
 | 3 | ~~自选股最大数量限制~~ → ✅ 初始确认 20 只，验收时用户调整为 100 只（2026-08-25） | 阶段 2.1 |
 | 4 | ~~异动阈值的默认值（涨幅 X%、跌幅 Y%、换手率 Z%）~~ → ✅ 已确认 涨 5% / 跌 5% / 换手 10%，全部支持人工填写其他值（2026-08-25 阶段 2.1 启动前） | 阶段 2.2 |
-| 5 | 资讯每天抓取条数与展示方式 | 阶段 3.1 |
+| 5 | ~~资讯每天抓取条数与展示方式~~ → ✅ 已确认「20 条 + 摘要 + 链接 + 时间，东财主源新浪回退」（2026-08-26 阶段3.1 启动前） | 阶段 3.1 |
 | 6 | AI 总结的具体呈现（卡片？列表？分类标签？） | 阶段 3.3 |
 | 7 | 桌面图标样式 | 阶段 4.3 |
 | 8 | ~~各模块数据字段是否完全沿用参考项目~~ → ✅ 已确认「字段重新设计，不沿用参考项目」（2026-08-24 第3次开发，对照 akshare 输出重新定义于 `frontend/src/types/modules.ts`） | 阶段 1.2 |
 
 ---
 
-*文档版本：v1.3 · 状态：阶段 2 全部完成（2.1-2.5 用户验收全部通过）。下一步：阶段 3 资讯与 AI*
+*文档版本：v1.4 · 状态：阶段 3 第1次开发完成（3.1 资讯抓取 + 三模块数据源容错加固，验收通过）。下一步：阶段 3 第2次开发（3.2+3.3+3.4 AI 功能）*
