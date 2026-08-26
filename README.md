@@ -122,6 +122,12 @@ cd backend
 
 ---
 
+## 发布记录
+
+- **v1.0-release（2026-08-26 正式版）**：阶段 0-4 全部验收通过；bat + 浏览器交付；开源上传 GitHub（MIT）。
+
+---
+
 ## 许可证
 
 [MIT License](LICENSE)
