@@ -16,6 +16,10 @@ DB_PATH = PROJECT_ROOT / "data" / "stock_dashboard.db"
 HOST = "127.0.0.1"
 PORT = 8003
 
+# ========== AI 配置（阶段 3.2）==========
+# 智谱 API Key 本地配置文件（data/ 已在 .gitignore，不会入库）
+AI_CONFIG_PATH = PROJECT_ROOT / "data" / "ai_config.json"
+
 # ========== 数据源配置 ==========
 # 4 大指数代码（新浪数据源不含北证50，后续可扩展）
 INDEX_CODES = {

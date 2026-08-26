@@ -17,6 +17,7 @@ import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
 import { getNews } from '@/api/news';
 import HistoryDatePicker from '@/components/dashboard/HistoryDatePicker';
+import AiSettings from '@/components/dashboard/AiSettings';
 import type { NewsArticle, NewsResponse } from '@/types/news';
 
 const { Title, Text } = Typography;
@@ -161,6 +162,7 @@ export default function NewsPage() {
       </Space>
 
       <Space>
+        <AiSettings />
         <HistoryDatePicker value={historyDate} onChange={handleDateChange} />
         <Button icon={<ReloadOutlined />} onClick={handleRetry}>
           刷新

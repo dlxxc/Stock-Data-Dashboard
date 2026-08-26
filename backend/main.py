@@ -367,6 +367,11 @@ def api_delete_watch_item(item_id: int) -> dict:
 # 注意：批量路由必须注册在 /{item_id} 之前，否则 FastAPI 会把 "batch-thresholds"
 # 当成 item_id 字符串，导致 422 int_parsing 错误。
 
+class AiConfigSaveRequest(BaseModel):
+    """保存智谱 API Key 的请求体。传空串则清空。"""
+    api_key: str = Field("", description="智谱 API Key；传空串则清空")
+
+
 class WatchlistBatchUpdateRequest(BaseModel):
     """批量设置阈值请求体（支持部分字段）。"""
     ids: List[int] = Field(..., min_length=1, description="要更新的自选股 id 列表")
@@ -803,6 +808,50 @@ def api_news(trade_date: str | None = None) -> dict:
         "articles": articles,
         "source": source,
     }
+
+
+# ========== AI 配置（阶段 3.2）==========
+@app.get("/api/ai/config")
+def get_ai_config() -> dict:
+    """获取 AI 配置状态（不回传明文 Key）。
+
+    Returns:
+        {"has_key": bool, "masked_key": "sk-****abcd"}
+    """
+    from ai_config import get_api_key, mask_key
+
+    key = get_api_key()
+    return {
+        "has_key": bool(key),
+        "masked_key": mask_key(key),
+    }
+
+
+@app.post("/api/ai/config")
+def save_ai_config(req: AiConfigSaveRequest) -> dict:
+    """保存（或传空串清空）智谱 API Key。
+
+    Returns:
+        {"ok": true, "has_key": bool, "masked_key": "..."}
+    """
+    from ai_config import mask_key, save_api_key
+
+    key = (req.api_key or "").strip()
+    save_api_key(key)
+    return {
+        "ok": True,
+        "has_key": bool(key),
+        "masked_key": mask_key(key),
+    }
+
+
+@app.delete("/api/ai/config")
+def clear_ai_config() -> dict:
+    """清空智谱 API Key。"""
+    from ai_config import clear_api_key
+
+    clear_api_key()
+    return {"ok": True, "has_key": False, "masked_key": ""}
 
 
 # ========== 入口 ==========
